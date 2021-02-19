@@ -1,0 +1,8 @@
+video/
+model_checkpoints/
+.env/
+.vscode/
+__pycache__/
+*.pyc
+*.ipynb
+.DS_Store/

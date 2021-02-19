@@ -1,0 +1,8 @@
+# ML Libs
+transformers 
+pytorch-lightning 
+einops
+
+# Logger
+neptune-client 
+neptune-contrib 
