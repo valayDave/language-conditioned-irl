@@ -5,7 +5,7 @@ import setuptools
 
 
 def get_long_description() -> str:
-    with open('README.md') as fh:
+    with open('Readme.md') as fh:
         return fh.read()
 
 
