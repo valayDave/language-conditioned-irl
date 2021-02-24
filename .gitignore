@@ -9,3 +9,4 @@ useless/
 *.ipynb
 .DS_Store/
 LANRL-*
+*.egg-info/

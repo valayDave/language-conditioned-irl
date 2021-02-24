@@ -37,5 +37,4 @@ setuptools.setup(
     install_requires=get_required(),
     python_requires='>=3.6',
     py_modules=['language_conditioned_rl', ],
-    include_package_data=True,
 )
