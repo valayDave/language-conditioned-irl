@@ -6,3 +6,6 @@ einops
 # Logger
 neptune-client 
 neptune-contrib 
+
+# For model Exploration
+streamlit

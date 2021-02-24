@@ -4,5 +4,8 @@ model_checkpoints/
 .vscode/
 __pycache__/
 *.pyc
+rl_outcome_explorer.py
+useless/
 *.ipynb
 .DS_Store/
+LANRL-*
