@@ -60,6 +60,9 @@ class Trainer:
     def get_core_config(self,reward_fn:LGRInferenceMixin):
         ENV = "MountainCar-v0"
         config = dict(
+            reward_scaleup=self.reward_scaleup,
+            reward_min=self.reward_min,
+            reward_max=self.reward_max,
             env=ENV,
             text_context=self.text_context,
             model_hidden=self.model_hidden,
@@ -121,14 +124,17 @@ class Trainer:
                     if idx < len(traj_tuples)-1:
                         next_act = traj_tuples[idx+1][1]
                     agent.learn(observation, at, rw.item(),st1, done, action_next=next_act)
-                
                 neptune.log_metric('reward', e, y=reward)
                 if e % self.log_every == 0:
                     logger.info(f'Completed Episode {e} With Reward {reward}')
         except KeyboardInterrupt as e:
             logger.error("Keyboard Interrupt Occured")
             env.close()
+            if self.video_save_dir:
+                neptune.log_artifact(self.video_save_dir)
             neptune.stop()
             return 
         env.close()
+        if self.video_save_dir:
+            neptune.log_artifact(self.video_save_dir)
         neptune.stop()

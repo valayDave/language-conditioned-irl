@@ -4,3 +4,4 @@ einops
 neptune-client 
 neptune-contrib 
 streamlit
+moviepy

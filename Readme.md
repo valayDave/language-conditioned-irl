@@ -34,6 +34,13 @@ trainer = Trainer(
 trainer.run(REWARD_FN)
 ```
 
+## Core Credits: 
+
+1. https://arxiv.org/pdf/1906.00295.pdf
+2. https://arxiv.org/abs/2009.01325
+3. https://github.com/huggingface/transformers/tree/master/src/transformers
+4. 
+
 ## Model Docs 
 
 - TODO 
