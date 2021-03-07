@@ -24,7 +24,7 @@ def get_version():
 setuptools.setup(
     name='language_conditioned_rl',
     packages=setuptools.find_packages(),
-    version='0.0.1',
+    version='0.0.2',
     license='MIT',
     description='Language Conditioned RL Repo',
     author='Valay Dave',
