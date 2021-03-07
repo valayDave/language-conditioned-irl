@@ -12,13 +12,13 @@ DEFAULT_CHECKPOINT_PATH = 'checkpoints/epoch=12-val_loss=0.98.ckpt'
 
 @dataclass
 class DataAndOptimizerConf:
-    NUM_TRAIN_SAMPLES = 10000
-    BATCH_SIZE = 15
-    WARMUP = 2000
-    MAX_CYCLES = 10
-    MAX_EPOCHS = 25
-    LEARNING_RATE = 0.001
-
+    NUM_TRAIN_SAMPLES:int = 10000
+    BATCH_SIZE:int = 15
+    WARMUP:int = 2000
+    MAX_CYCLES:int = 10
+    MAX_EPOCHS:int = 25
+    LEARNING_RATE:float = 0.001
+    
 
 class Flatten(torch.nn.Module):
     def forward(self, x):
@@ -410,6 +410,9 @@ class LGRInferenceMixin(object):
         if 'data_params' in config:
             del config['data_params']
         # print(config)
+        if 'transformer_params' in config: # The was after Bringing new ddataset to log everything properly
+            config = config['transformer_params']
+        
         trans = cls(**config, experiment_name=experiment_name,
                     loaded_checkpoint=checkpoint_path)
 
