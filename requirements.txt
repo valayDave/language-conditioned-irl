@@ -1,5 +1,5 @@
 transformers 
-pytorch-lightning==1.2.0
+pytorch-lightning==1.2.2
 einops
 neptune-client 
 neptune-contrib 
