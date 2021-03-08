@@ -644,7 +644,7 @@ class LGRRewardOnlyHeadLearner(pl.LightningModule):
     num_cycles = self.data_params.MAX_CYCLES
     lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
         optimizer, warmup, t_total, num_cycles=num_cycles)
-    return [optimizer], [lr_scheduler]
+    return [optimizer], [{'scheduler':lr_scheduler,'interval':'step'}]
 
 
 
