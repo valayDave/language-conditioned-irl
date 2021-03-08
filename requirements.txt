@@ -3,5 +3,4 @@ pytorch-lightning
 einops
 neptune-client 
 neptune-contrib
-streamlit
 moviepy
