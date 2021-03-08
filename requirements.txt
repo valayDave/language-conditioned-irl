@@ -1,8 +1,7 @@
 transformers
-pytorch-lightning==1.2.2
+pytorch-lightning
 einops
 neptune-client 
 neptune-contrib
 streamlit
 moviepy
-torchtext==0.8.0
