@@ -19,6 +19,7 @@ class DataAndOptimizerConf:
     MAX_EPOCHS:int = 25
     LEARNING_RATE:float = 0.001
     NO_LR_SCHEDULER:bool=False
+    LR_SCHEDULER_FREQUENCY:str='epoch' # step | epoch
     
 
 class Flatten(torch.nn.Module):
@@ -303,10 +304,10 @@ class LGRBehaviouralDiffLearnerPCGrad(pl.LightningModule):
 
     def configure_optimizers(self):
         from transformers import AdamW, get_cosine_with_hard_restarts_schedule_with_warmup
-        if self.data_params.NO_LR_SCHEDULER:
-            return [optimizer]
         optimizer = AdamW(self.parameters(), lr=self.data_params.LEARNING_RATE,
                           eps=1e-12, betas=(0.9, 0.999))
+        if self.data_params.NO_LR_SCHEDULER:
+            return [optimizer]
         num_minibatch_steps = (
             self.data_params.NUM_TRAIN_SAMPLES)/(self.data_params.BATCH_SIZE)
         max_epochs = self.data_params.MAX_EPOCHS
@@ -315,7 +316,7 @@ class LGRBehaviouralDiffLearnerPCGrad(pl.LightningModule):
         num_cycles = self.data_params.MAX_CYCLES
         lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
             optimizer, warmup, t_total, num_cycles=num_cycles)
-        return [optimizer], [{'scheduler':lr_scheduler,'interval':'step'}]
+        return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
 
 class LGRInferenceMixin(object):
@@ -648,7 +649,7 @@ class LGRRewardOnlyHeadLearner(pl.LightningModule):
     num_cycles = self.data_params.MAX_CYCLES
     lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
         optimizer, warmup, t_total, num_cycles=num_cycles)
-    return [optimizer], [{'scheduler':lr_scheduler,'interval':'step'}]
+    return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
 
 
