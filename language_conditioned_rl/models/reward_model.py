@@ -20,6 +20,7 @@ class DataAndOptimizerConf:
     LEARNING_RATE:float = 0.001
     NO_LR_SCHEDULER:bool=False
     LR_SCHEDULER_FREQUENCY:str='epoch' # step | epoch
+    TOTAL_STEPS:int=200
     
 
 class Flatten(torch.nn.Module):
@@ -312,7 +313,7 @@ class LGRBehaviouralDiffLearnerPCGrad(pl.LightningModule):
             self.data_params.NUM_TRAIN_SAMPLES)/(self.data_params.BATCH_SIZE)
         max_epochs = self.data_params.MAX_EPOCHS
         warmup = self.data_params.WARMUP
-        t_total = max_epochs * num_minibatch_steps
+        t_total = self.data_params.TOTAL_STEPS
         num_cycles = self.data_params.MAX_CYCLES
         lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
             optimizer, warmup, t_total, num_cycles=num_cycles)
@@ -645,7 +646,7 @@ class LGRRewardOnlyHeadLearner(pl.LightningModule):
         self.data_params.NUM_TRAIN_SAMPLES)/(self.data_params.BATCH_SIZE)
     max_epochs = self.data_params.MAX_EPOCHS
     warmup = self.data_params.WARMUP
-    t_total = max_epochs * num_minibatch_steps
+    t_total = self.data_params.TOTAL_STEPS
     num_cycles = self.data_params.MAX_CYCLES
     lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
         optimizer, warmup, t_total, num_cycles=num_cycles)
