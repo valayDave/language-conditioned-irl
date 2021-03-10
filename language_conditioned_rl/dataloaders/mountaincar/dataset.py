@@ -8,9 +8,15 @@ SAMPLE = 1000
 MAX_TEXT_LENGTH = 25
 EPISODE_SAMPLES = 90
 SENTENCE_PER_EPISODE = 10
+SENTENCE_SAMPLE_BUFFER_SIZE = 15
+CATEGORY_AUGMENT_SENTENCE_MAP = {
+    1: "The car is swings around at the bottom of the valley.",
+    2: "The car is able swing beyond the bottom of the valley but does not reach the top of the mountain",
+    3: "The car is able to reach the top of the mountain",
+}
 
 
-def create_contrastive_examples(data_df, num_cats=3, episode_samples=None, sentence_sample=10):
+def create_contrastive_examples(data_df, num_cats=3, episode_samples=10, sentence_sample=10, cat_sent_sample_size=20, only_core_samples=False):
     assert 'category' in data_df.columns and 'trajectory_stats' in data_df.columns and 'sentences' in data_df.columns
     contrastive_tuples = []
     # create parts for each category at an arrray of dfs where each df represents data about one category.
@@ -23,31 +29,71 @@ def create_contrastive_examples(data_df, num_cats=3, episode_samples=None, sente
     part_recs = [p.to_dict(orient='records') for p in part_eps]
 
     # Find Combinations of the databased on the category splits
-    # [([cat1_docs],[cat2_docs]),([cat2_docs],[cat3_docs]),([cat3_docs],[cat1_docs])]
+    # [([cat1_docs],[e]),([cat2_docs],[cat3_docs]),([cat3_docs],[cat1_docs])]
     combs = list(itertools.combinations(part_recs, 2))
+
+    # Extract Unique Sentences for each category
+    sent_cat_dict = {p: {} for p in range(1, num_cats+1)}
+    for p in part_eps:
+        for sents in p['sentences']:
+            cat = int(p['category'].iloc[0])
+            for s in sents:
+                sent_cat_dict[cat][s] = 1
+
+    # From unique sentences create samples
+    # create a sample set for Sampling downstream when creating constrastive tuples
+    sentence_sampling_dict = {}
+    for cat in sent_cat_dict:
+        # If number of sentences larger than sample size than sample the sentences to create buffer
+        if len(sent_cat_dict[cat].keys()) > cat_sent_sample_size:
+            sentence_sampling_dict[cat] = random.sample(
+                list(sent_cat_dict[cat].keys()), cat_sent_sample_size)
+        else:  # else fill the buffer with all sentences.
+            sentence_sampling_dict[cat] = list(sent_cat_dict[cat].keys())
+
+    print("Sampling from the List of Following Sentences. ")
+    print(sentence_sampling_dict)
 
     # Make combinations of the samples by category: Like blocks of cat1 and cat2
     for comb_tup in combs:
         # For each combinations of the "block of cateogry samples" create combinations of individual trajectories.
         cat_x_docs, cat_y_docs = comb_tup
-        for d_x, d_y in itertools.product(cat_x_docs, cat_x_docs):
+        # Get categories so that we can sample sentences in a healthy way
+        cat_x, cat_y = cat_x_docs[0]['category'], cat_y_docs[0]['category']
+
+        cat_x_sents = sentence_sampling_dict[cat_x]
+        cat_y_sents = sentence_sampling_dict[cat_y]
+
+        for d_x, d_y in itertools.product(cat_x_docs, cat_y_docs):
             # For each combinations of individual trajectories samples the sentences for each the
             # contrastive data tuples: (pos_sent,pos_traj,pos_cat,neg_sent,neg_traj,neg_cat)
+            if only_core_samples:  # Create only core samples
+                core_cont_tups = list(itertools.product(
+                    [CATEGORY_AUGMENT_SENTENCE_MAP[cat_x]],
+                    [d_x['trajectory_stats']],
+                    [d_x['category']],
+                    [CATEGORY_AUGMENT_SENTENCE_MAP[cat_y]],
+                    [d_y['trajectory_stats']],
+                    [d_y['category']]
+                ))
+                contrastive_tuples.extend(core_cont_tups)
+            else:  # create something using both
+                d_x_sent = random.sample(
+                    cat_x_sents, sentence_sample-1)+[CATEGORY_AUGMENT_SENTENCE_MAP[cat_x]]
+                d_y_sent = random.sample(
+                    cat_y_sents, sentence_sample-1)+[CATEGORY_AUGMENT_SENTENCE_MAP[cat_y]]
+                trexp = list(itertools.product(
+                    d_x_sent,
+                    [d_x['trajectory_stats']],
+                    [d_x['category']],
+                    d_y_sent,
+                    [d_y['trajectory_stats']],
+                    [d_y['category']]
+                ))
+                contrastive_tuples.extend(trexp)
 
-            d_x_sent = random.sample(d_x['sentences'], sentence_sample)
-            d_y_sent = random.sample(d_y['sentences'], sentence_sample)
-            trexp = list(itertools.product(
-                d_x_sent,
-                [d_x['trajectory_stats']],
-                [d_x['category']],
-                d_y_sent,
-                [d_y['trajectory_stats']],
-                [d_y['category']]
-            ))
-            contrastive_tuples.extend(trexp)
-
-    # [(pos_sent,pos_traj,pos_cat,neg_sent,neg_traj,neg_cat)]
-    return contrastive_tuples
+    # [(pos_sent,pos_traj,pos_cat,neg_sent,neg_traj,neg_cat)],{cat:['']}
+    return contrastive_tuples, sentence_sampling_dict
 
 
 class ContrastiveTrainingDataset(Dataset):
@@ -61,6 +107,8 @@ class ContrastiveTrainingDataset(Dataset):
                  num_cats=3,
                  num_episode_samples=EPISODE_SAMPLES,
                  num_sentences_per_episode=SENTENCE_PER_EPISODE,
+                 sentence_sample_buffer_size=SENTENCE_SAMPLE_BUFFER_SIZE,
+                 only_core_samples=False,
                  with_mask=False):
 
         self.num_cats = num_cats
@@ -70,10 +118,12 @@ class ContrastiveTrainingDataset(Dataset):
         self.tokenizer = tokenizer
         self.with_mask = with_mask
         # self.train_examples = self.create_contrastive_training_tuples(df, sample,)
-        self.train_examples = create_contrastive_examples(df,
-                                                          num_cats=num_cats,
-                                                          episode_samples=num_episode_samples,
-                                                          sentence_sample=num_sentences_per_episode)
+        self.train_examples, self.sentence_sampling_dict = create_contrastive_examples(df,
+                                                                                       num_cats=num_cats,
+                                                                                       only_core_samples=only_core_samples,
+                                                                                       cat_sent_sample_size=sentence_sample_buffer_size,
+                                                                                       episode_samples=num_episode_samples,
+                                                                                       sentence_sample=num_sentences_per_episode)
 
     def __len__(self):
         return len(self.train_examples)

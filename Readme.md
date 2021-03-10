@@ -39,9 +39,18 @@ trainer.run(REWARD_FN)
 1. https://arxiv.org/pdf/1906.00295.pdf
 2. https://arxiv.org/abs/2009.01325
 3. https://github.com/huggingface/transformers/tree/master/src/transformers
-4. 
+4. https://github.com/lucidrains/vit-pytorch/blob/main/vit_pytorch/vit_pytorch.py
+5. 
+
 
 ## Model Docs 
 
 - TODO 
 
+## Training Setup : 
+
+### Mountain Car : 
+- TODO 
+
+### Robot Experiments:
+- TODO
