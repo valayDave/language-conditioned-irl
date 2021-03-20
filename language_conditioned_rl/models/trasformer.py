@@ -740,6 +740,7 @@ class OmniChannelTransformer(nn.Module):
         for channel_tensors_tuple in itertools.combinations(input_channels,len(input_channels)-1):
             cross_channel_names = set(list(map(lambda x:x.name,channel_tensors_tuple)))
             current_channel_name = all_channel_names - cross_channel_names
+            current_channel_name = current_channel_name[0]
             current_channel_object = channel_lookup_dict[current_channel_name]
             if return_attentions:
                 # Use the current channel and other channels to find cross channel features. 
