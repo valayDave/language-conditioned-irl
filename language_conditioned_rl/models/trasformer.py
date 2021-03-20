@@ -466,7 +466,7 @@ class TextEmbeddingsPretrain(nn.Module):
             num_embeddings=num_emb, embedding_dim=text_embedding_dim)
         self.embeddings.load_state_dict(bert_emb.state_dict())
         if not is_learnable:
-            self.text_embeddings.weight.requires_grad = False
+            self.embeddings.weight.requires_grad = False
     
     def forward(self, channel_seq):
         return self.embeddings(channel_seq)
