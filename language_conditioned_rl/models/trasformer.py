@@ -49,6 +49,7 @@ class VanillaTransformer(nn.Module):
                  embedding_size=256,
                  layer_norm_epsilon=0.00001,
                  scale=0.2,
+                 use_pos_embed=True,
                  resid_pdrop=0.1,
                  attn_pdrop=0.1,
                  num_attention_heads=8):
@@ -56,7 +57,8 @@ class VanillaTransformer(nn.Module):
         self.layers = nn.ModuleList([])
         self.embed_dropout = embed_dropout
         self.embed_scale = math.sqrt(embedding_size)
-        self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
+        if use_pos_embed:
+            self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
 
         for _ in range(num_layers):
             self.layers.append(Block(
@@ -87,6 +89,7 @@ class MultiModalTransformer(nn.Module):
                embedding_size=256,
                layer_norm_epsilon=0.00001,
                scale=0.2,
+               use_pos_embed=True,
                resid_pdrop=0.1,
                attn_pdrop=0.1,
                num_attention_heads=8):
@@ -94,7 +97,8 @@ class MultiModalTransformer(nn.Module):
     self.layers = nn.ModuleList([])
     self.embed_dropout = embed_dropout
     self.embed_scale = math.sqrt(embedding_size)
-    self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
+    if use_pos_embed:
+        self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
 
     for _ in range(num_layers):
 
