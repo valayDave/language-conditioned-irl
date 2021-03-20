@@ -830,7 +830,7 @@ class OmniChannelTransformer(nn.Module):
                     index_modality.sequence,
                     cross_mod_object.sequence,
                     mask=index_modality.mask,
-                    mask_y=cross_mod_object.mask,
+                    # mask_y=cross_mod_object.mask,
                     return_attentions=return_attentions
                 ))
             else:
@@ -838,7 +838,7 @@ class OmniChannelTransformer(nn.Module):
                     index_modality.sequence,
                     cross_mod_object.sequence,
                     mask=index_modality.mask,
-                    mask_y=cross_mod_object.mask,
+                    # mask_y=cross_mod_object.mask,
                     return_attentions=return_attentions
                 )
                 cross_mod_tensors.append(cross_atten_opx)
@@ -847,7 +847,7 @@ class OmniChannelTransformer(nn.Module):
         cross_modal_tensors = torch.cat(cross_mod_tensors, dim=2)
         vanilla_transformer_name = self.get_vanilla_trasformer_layer_name(index_modality.name)
         vanilla_transformer = getattr(self, vanilla_transformer_name)
-        final_transformer_op = vanilla_transformer(cross_modal_tensors,mask=index_modality.mask)
+        final_transformer_op = vanilla_transformer(cross_modal_tensors)
         if not return_attentions:
             return final_transformer_op
         else:
