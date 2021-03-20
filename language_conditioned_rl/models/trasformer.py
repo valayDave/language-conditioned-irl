@@ -1,15 +1,21 @@
 
+from dataclasses import dataclass, field
 import torch.nn as nn
+from typing import List
 import math
 import torch
 import einops
+import abc
 import itertools
 import torch.nn.functional as F
 from .cross_modal_attention import MultiModalAttentionBlock
 from .attention import Block
 from .embeddings import ActionEmbedding, SinusoidalPositionalEmbedding
+from einops.layers.torch import Rearrange
+
 
 PRETRAINED_MODEL = 'bert-base-uncased'
+
 
 class Transformer(nn.Module):
     def __init__(self,
@@ -49,6 +55,7 @@ class VanillaTransformer(nn.Module):
                  embedding_size=256,
                  layer_norm_epsilon=0.00001,
                  scale=0.2,
+                 use_pos_embed=True,
                  resid_pdrop=0.1,
                  attn_pdrop=0.1,
                  num_attention_heads=8):
@@ -56,7 +63,8 @@ class VanillaTransformer(nn.Module):
         self.layers = nn.ModuleList([])
         self.embed_dropout = embed_dropout
         self.embed_scale = math.sqrt(embedding_size)
-        self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
+        if use_pos_embed:
+            self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
 
         for _ in range(num_layers):
             self.layers.append(Block(
@@ -81,61 +89,64 @@ class VanillaTransformer(nn.Module):
 
 
 class MultiModalTransformer(nn.Module):
-  def __init__(self,
-               num_layers=4,
-               embed_dropout=0.1,
-               embedding_size=256,
-               layer_norm_epsilon=0.00001,
-               scale=0.2,
-               resid_pdrop=0.1,
-               attn_pdrop=0.1,
-               num_attention_heads=8):
-    super().__init__()
-    self.layers = nn.ModuleList([])
-    self.embed_dropout = embed_dropout
-    self.embed_scale = math.sqrt(embedding_size)
-    self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
+    def __init__(self,
+                 num_layers=4,
+                 embed_dropout=0.1,
+                 embedding_size=256,
+                 layer_norm_epsilon=0.00001,
+                 scale=0.2,
+                 resid_pdrop=0.1,
+                 use_pos_embed=True,
+                 attn_pdrop=0.1,
+                 num_attention_heads=8):
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        self.embed_dropout = embed_dropout
+        self.embed_scale = math.sqrt(embedding_size)
+        if use_pos_embed:
+            self.embed_positions = SinusoidalPositionalEmbedding(embedding_size)
 
-    for _ in range(num_layers):
+        for _ in range(num_layers):
 
-        self.layers.append(MultiModalAttentionBlock(
-            embedding_size=embedding_size,
-            layer_norm_epsilon=layer_norm_epsilon,
-            scale=scale,
-            resid_pdrop=resid_pdrop,
-            attn_pdrop=attn_pdrop,
-            num_attention_heads=num_attention_heads))
+            self.layers.append(MultiModalAttentionBlock(
+                embedding_size=embedding_size,
+                layer_norm_epsilon=layer_norm_epsilon,
+                scale=scale,
+                resid_pdrop=resid_pdrop,
+                attn_pdrop=attn_pdrop,
+                num_attention_heads=num_attention_heads))
 
-  def forward(self, seq_x, seq_y, mask=None, return_attentions=False):
-    # Add positional embedding
-    seq_x = self.embed_scale * seq_x
-    if self.embed_positions is not None:
-        seq_x += self.embed_positions(seq_x[:, :, 0])
-    seq_x = F.dropout(seq_x, p=self.embed_dropout, training=self.training)
+    def forward(self, seq_x, seq_y, mask=None, return_attentions=False):
+        # Add positional embedding
+        seq_x = self.embed_scale * seq_x
+        if self.embed_positions is not None:
+            seq_x += self.embed_positions(seq_x[:, :, 0])
+        seq_x = F.dropout(seq_x, p=self.embed_dropout, training=self.training)
 
-    seq_y = self.embed_scale * seq_y
-    if self.embed_positions is not None:
-        seq_y += self.embed_positions(seq_y[:, :, 0])
-    seq_y = F.dropout(seq_y, p=self.embed_dropout, training=self.training)
+        seq_y = self.embed_scale * seq_y
+        if self.embed_positions is not None:
+            seq_y += self.embed_positions(seq_y[:, :, 0])
+        seq_y = F.dropout(seq_y, p=self.embed_dropout, training=self.training)
 
-    if not return_attentions:
-      hidden = seq_x
-      for attention_block in self.layers:
-          hidden = attention_block(hidden, seq_y, mask=mask)
-      return hidden
-    else:
-      hidden = seq_x
-      attn_vals = []
-      for attention_block in self.layers:
-          hidden, attn = attention_block(hidden, seq_y, mask=mask, return_attentions=return_attentions)
-          attn_vals.append(attn)
-      return hidden, torch.stack(attn_vals)
+        if not return_attentions:
+            hidden = seq_x
+            for attention_block in self.layers:
+                hidden = attention_block(hidden, seq_y, mask=mask)
+            return hidden
+        else:
+            hidden = seq_x
+            attn_vals = []
+            for attention_block in self.layers:
+                hidden, attn = attention_block(
+                    hidden, seq_y, mask=mask, return_attentions=return_attentions)
+                attn_vals.append(attn)
+            return hidden, torch.stack(attn_vals)
 
 
 class CrossModalBertEmbedTranformer(nn.Module):
     '''
     Creates Multi-Transformers under ["state","action","text"] modalities. 
-    
+
     Use Glove Embeddings with Explicit Glove Embedding Layer. 
 
 
@@ -149,21 +160,21 @@ class CrossModalBertEmbedTranformer(nn.Module):
     mod_trans_common_name = '_collate_transformer'
 
     def __init__(self,
-               num_layers=3,
-               dropout=0.1,
-               num_heads=4,
-               scale=0.2,
-               pretrained_model=PRETRAINED_MODEL,
-               num_actions=3,
-               embd_pdrop=0.1,
-               common_conv_dim=128,
-               embedding_size=256,
-               layer_norm_epsilon=0.00001,
-               resid_pdrop=0.1,
-               attn_pdrop=0.1,
-               state_dims=2,
-               return_hidden_tensors=False,
-               action_type='discrete'):
+                 num_layers=3,
+                 dropout=0.1,
+                 num_heads=4,
+                 scale=0.2,
+                 pretrained_model=PRETRAINED_MODEL,
+                 num_actions=3,
+                 embd_pdrop=0.1,
+                 common_conv_dim=128,
+                 embedding_size=256,
+                 layer_norm_epsilon=0.00001,
+                 resid_pdrop=0.1,
+                 attn_pdrop=0.1,
+                 state_dims=2,
+                 return_hidden_tensors=False,
+                 action_type='discrete'):
 
         super().__init__()
 
@@ -194,7 +205,8 @@ class CrossModalBertEmbedTranformer(nn.Module):
         self.text_conv = nn.Conv1d(
             text_embedding_dim, common_conv_dim, kernel_size=1, padding=0, bias=False)
 
-        self.action_cls_token = nn.Parameter(torch.randn(1, 1, common_conv_dim))
+        self.action_cls_token = nn.Parameter(
+            torch.randn(1, 1, common_conv_dim))
         self.state_cls_token = nn.Parameter(torch.randn(1, 1, common_conv_dim))
         self.text_cls_token = nn.Parameter(torch.randn(1, 1, common_conv_dim))
         self.to_cls = nn.Identity()
@@ -207,14 +219,14 @@ class CrossModalBertEmbedTranformer(nn.Module):
 
         # self.multimodal_trans_map = self.get_joint_modality_names()
         self.create_multi_modal_transformers(common_conv_dim,
-                                            dropout=dropout,
-                                            num_heads=num_heads,
-                                            scale=scale,
-                                            embd_pdrop=embd_pdrop,
-                                            per_module_depth=num_layers,
-                                            layer_norm_epsilon=layer_norm_epsilon,
-                                            resid_pdrop=resid_pdrop,
-                                            attn_pdrop=attn_pdrop)
+                                             dropout=dropout,
+                                             num_heads=num_heads,
+                                             scale=scale,
+                                             embd_pdrop=embd_pdrop,
+                                             per_module_depth=num_layers,
+                                             layer_norm_epsilon=layer_norm_epsilon,
+                                             resid_pdrop=resid_pdrop,
+                                             attn_pdrop=attn_pdrop)
 
     @staticmethod
     def create_emb_layer(weights_matrix, non_trainable=True):
@@ -238,7 +250,7 @@ class CrossModalBertEmbedTranformer(nn.Module):
         self.multimodal_trans_map = [
             m+self.cross_mod_trans_common_name for m in self.get_joint_modality_names()]
         for name in self.multimodal_trans_map:
-        # Create cross model transformer of names
+            # Create cross model transformer of names
             cross_modal_transformer = MultiModalTransformer(num_layers=per_module_depth,
                                                             embedding_size=hidden_size,
                                                             layer_norm_epsilon=layer_norm_epsilon,
@@ -252,15 +264,15 @@ class CrossModalBertEmbedTranformer(nn.Module):
         self.modality_map = [
             m + self.mod_trans_common_name for m in self.modalities]
         for mod in self.modality_map:
-        # Create tranformer that runs on concatenation of cross modalities of its own and joints them.
+            # Create tranformer that runs on concatenation of cross modalities of its own and joints them.
             modal_trans = VanillaTransformer(num_layers=per_module_depth,
-                                            embedding_size=2*hidden_size,
-                                            layer_norm_epsilon=layer_norm_epsilon,
-                                            scale=scale,
-                                            embed_dropout=embd_pdrop,
-                                            resid_pdrop=resid_pdrop,
-                                            attn_pdrop=attn_pdrop,
-                                            num_attention_heads=num_heads)
+                                             embedding_size=2*hidden_size,
+                                             layer_norm_epsilon=layer_norm_epsilon,
+                                             scale=scale,
+                                             embed_dropout=embd_pdrop,
+                                             resid_pdrop=resid_pdrop,
+                                             attn_pdrop=attn_pdrop,
+                                             num_attention_heads=num_heads)
             setattr(self, mod, modal_trans)
         print(
             f"Created The Multi-Modal Transformers For {','.join(self.modality_map)} {','.join(self.multimodal_trans_map)}")
@@ -293,7 +305,7 @@ class CrossModalBertEmbedTranformer(nn.Module):
         (
             (modality,torch.Tensor (B,p,d)),(modality,torch.Tensor (B,v,d))
         ) : tuple of tuples. Each contains modalitystring and tensor
-        
+
         Runs: 
         '''
         cross_mod_tensors = []
@@ -303,9 +315,11 @@ class CrossModalBertEmbedTranformer(nn.Module):
                 cross_mod + self.cross_mod_trans_common_name
             transformer = getattr(self, cross_mod_trans_name)
             if not return_attentions:
-                cross_mod_tensors.append(transformer(modality_tensor, cm_tensor, mask=modality_mask))
+                cross_mod_tensors.append(transformer(
+                    modality_tensor, cm_tensor, mask=modality_mask))
             else:
-                opx, attns = transformer(modality_tensor, cm_tensor, mask=modality_mask, return_attentions=return_attentions)
+                opx, attns = transformer(
+                    modality_tensor, cm_tensor, mask=modality_mask, return_attentions=return_attentions)
                 cross_mod_tensors.append(opx)
                 attn_map[cross_mod_trans_name] = attns
 
@@ -337,7 +351,7 @@ class CrossModalBertEmbedTranformer(nn.Module):
         text_tensor = text_tensor.transpose(1, 2)
 
         # print(f"Shape PRE-CONV state_tensor {state_tensor.shape} action_tensor {action_tensor.shape} text_tensor {text_tensor.shape}")
-        #Apply Dimensionality Reduction to the information. :
+        # Apply Dimensionality Reduction to the information. :
         state_tensor, action_tensor, text_tensor = self.apply_dim_reduction_convolutions(
             state_tensor, action_tensor, text_tensor)
 
@@ -347,7 +361,8 @@ class CrossModalBertEmbedTranformer(nn.Module):
             self.action_cls_token, '() n d -> b n d', b=b)
         state_cls_token = einops.repeat(
             self.state_cls_token, '() n d -> b n d', b=b)
-        text_cls_token = einops.repeat(self.text_cls_token, '() n d -> b n d', b=b)
+        text_cls_token = einops.repeat(
+            self.text_cls_token, '() n d -> b n d', b=b)
 
         state_tensor = torch.cat((state_cls_token, state_tensor), dim=1)
         action_tensor = torch.cat((action_cls_token, action_tensor), dim=1)
@@ -365,7 +380,7 @@ class CrossModalBertEmbedTranformer(nn.Module):
 
         # Apply cross modality Transformer.
 
-        ##Create Cross modality tuples for input to cross_mod tensors.
+        # Create Cross modality tuples for input to cross_mod tensors.
         st_at_tup = (('state', state_tensor), ('action', action_tensor))
         st_tt_tup = (('state', state_tensor), ('text', text_tensor))
         tt_at_tup = (('text', text_tensor), ('action', action_tensor))
@@ -403,3 +418,292 @@ class CrossModalBertEmbedTranformer(nn.Module):
             return concat_tensor_proj
         # (CLS Token extracted Tensor,tuple Attention outputs of each of the seqeuences in the final layers.)
         return (concat_tensor_proj, (text_attn_map, state_attn_map, action_attn_map))
+
+
+class ChannelEmbeddingDiscrete(nn.Module):
+    def __init__(self,num_embeddings,embedding_size=128,is_learnable=False):
+        super().__init__()
+        self.embeddings = nn.Embedding(
+            num_embeddings=num_embeddings, embedding_dim=embedding_size)
+        if not is_learnable:
+            self.embeddings.weight.requires_grad = False
+        
+    def forward(self,channel_seq):
+        return self.embeddings(channel_seq)
+
+
+class ChannelEmbeddingContinous(nn.Module):
+    def __init__(self,input_dims,embedding_size=128,is_learnable=True):
+        super().__init__()
+        self.embeddings =  nn.Linear(input_dims,embedding_size)
+        if not is_learnable:
+            self.embeddings.weight.requires_grad = False
+    
+    def forward(self,channel_seq):
+        return self.embeddings(channel_seq)
+
+
+class ImagePatchEmbedding(nn.Module):
+    """ImagePatchEmbedding [summary]
+    THANK YOU https://github.com/lucidrains/vit-pytorch/blob/main/vit_pytorch/vit_pytorch.py
+    """
+    def __init__(self,image_size, patch_size,embedding_size=128,channels=3):
+        super().__init__()
+        assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
+        num_patches = (image_size // patch_size) ** 2
+        patch_dim = channels * patch_size ** 2
+        self.to_patch_embedding = nn.Sequential(
+            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
+            nn.Linear(patch_dim, embedding_size),
+        )
+    
+    def forward(self,image):
+        return self.to_patch_embedding(image)
+
+
+@dataclass
+class ChannelConfiguration:
+    """ []
+    The is configuration class 
+    Configuration Given For each channel based on which 
+    this omni channel transformer will create embedding layer. 
+
+    name:
+        Name of channel Configuration
+
+    channel_type :  Values can be 'continous' | 'discrete'
+        The type of variable. Categorical vs continous. 
+        If 'discrete' then embedding dim will be created. 
+        if 'continous' then linear layer attached to it. 
+
+    input_dim 
+        if channel_type == 'continous' 
+            dim of the Individual Item in the sequence of the channel
+        if channel_type == 'discrete'
+            number of categorical variables.  
+    
+    embedding_size
+        This is super useful when coming to figure 1d convolutions
+    
+    no_embedding: 
+        Will not Create/Use Embedding Layer for this channel. 
+
+    embedding_layer:
+        Instantiated nn.Module. 
+
+    use_position_embed : 
+        will inform weather Position embeddings will be used in 
+        any of the transformer layers. 
+
+    """
+    name: str = ''
+    channel_type: str = 'discrete'
+    input_dim: int = None
+    embedding_size:int=None
+    no_embedding: bool = False
+    embedding_layer:nn.Module=None 
+    use_position_embed:bool=True
+
+
+    def __post_init__(self):
+        if not self.no_embedding and self.embedding_layer is None:
+            raise Exception("If `no_embedding` is False, then embedding_layer needs to be provided to map the inputs")
+        
+        if self.no_embedding and self.input_dim ==None:
+            raise Exception("If No Embedding are given then Dimsion of an individual item in input sequence is required")
+    
+
+
+@dataclass
+class OmniTransformerCoreConfig:
+    num_layers:int=3
+    dropout:float=0.1
+    num_heads:int=4
+    scale:float=0.2
+    embd_pdrop:float=0.1
+    layer_norm_epsilon:float=0.00001
+    resid_pdrop:float=0.1
+    attn_pdrop:float=0.1
+
+    #  if pooling_strategy == 'mean' then mean of all 
+    pooling_strategy:str='cls' # Can be 'cls' or 'mean'
+    # This is the size of the embedding 
+    # that goes into the transformer
+    transformer_embedding_size:int=256
+    
+    # Per Channel Config With Embedding layer Comes Here. 
+    channel_configurations:List[ChannelConfiguration] = field(default_factory=[])
+
+    def to_json(self):
+        pass # todo
+
+@dataclass  
+class ChannelData:
+    mask:torch.Tensor = None
+    sequence:torch.Tensor = None
+    name:str=None
+class OmniChannelTransformer(nn.Module):
+
+    join_str = "__"
+
+    modalities = []
+
+    embeddings = {} # Holds all Embedding layers In this transformer. 
+
+    cross_mod_trans_common_name = '_transformer'
+
+    mod_trans_common_name = '_collate_transformer'
+
+    embedding_layer_common_name= '__embedding'
+    
+    interm_convs_layer_common_name= '__1dcov'
+
+    cls_tokens_common_name= '__cls_token'
+
+    def __init__(self, config:OmniTransformerCoreConfig,):
+        super().__init__()
+        self.modalities = [c.name for c in config.channel_configurations]
+        # $ create embedding layer here 
+        self.create_embeddings(config.channel_configurations)
+        # $ Create 1 D Conv Here. 
+        self.create_interim_convs(config)
+        # $ create class Tokens here.
+        self.create_class_tokens(config)
+        # Pos embedding come via sinusiods and they will inform the configuration 
+        # of the cross modal transformer
+        # todo : Create Cross channel transformers here. 
+        self.create_cross_modal_transformer(config)
+
+        self.to_cls = nn.Identity()
+        self.pooling_strategy = config.pooling_strategy
+
+        self.config = config
+        
+        # self.final_layer = nn.Sequential(
+        #     nn.Linear(common_conv_dim*3*2, common_conv_dim*3*2),
+        #     nn.ReLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(common_conv_dim*3*2, common_conv_dim*3*2)
+        # )
+    
+    # NAMING FNS COME HERE> 
+    def get_vanilla_trasformer_layer_name(self,mod:str):
+        return mod + self.mod_trans_common_name
+
+    def get_cross_mod_layer_name(self,m1:str,m2:str):
+        return m1+self.join_str+m2+self.cross_mod_trans_common_name
+
+    def get_conv_layer_name(self,mod:str):
+        return mod + self.interm_convs_layer_common_name
+
+    def get_cls_token_name(self,mod:str):
+        return mod + self.cls_tokens_common_name
+
+    def get_embedding_layer_name(self,mod:str):
+        return mod+self.embedding_layer_common_name
+
+    def create_class_tokens(self,config:OmniTransformerCoreConfig):
+        for c in config.channel_configurations:
+            cls_token = nn.Parameter(torch.randn(1, 1, config.transformer_embedding_size))
+            layer_name = self.get_cls_token_name(c.name)
+            setattr(self,layer_name,cls_token)
+
+    def create_cross_modal_transformer(self,config:OmniTransformerCoreConfig):
+        config_combs = list(itertools.combinations(config.channel_configurations,2))
+        for ch1,ch2 in config_combs:
+            trans_name = self.get_cross_mod_layer_name(ch1.name, ch2.name)
+            # This will always add position Embed
+            cm_transformer = MultiModalTransformer(
+                num_layers=config.num_layers,
+                num_attention_heads=config.num_heads,
+                scale=config.scale,
+                embedding_size=config.transformer_embedding_size,
+                embed_dropout=config.embd_pdrop,
+                layer_norm_epsilon=config.layer_norm_epsilon,
+                resid_pdrop=config.resid_pdrop,
+                attn_pdrop=config.attn_pdrop,
+                use_pos_embed=ch2.use_position_embed and ch1.use_position_embed
+            )
+            setattr(trans_name,cm_transformer)
+        
+        for c in config.channel_configurations:
+            trans_name = self.get_vanilla_trasformer_layer_name(c.name)
+            vnt = VanillaTransformer(
+                num_layers=config.num_layers,
+                num_attention_heads=config.num_heads,
+                embedding_size=2*config.transformer_embedding_size,
+                scale=config.scale,
+                embed_dropout=config.embd_pdrop,
+                layer_norm_epsilon=config.layer_norm_epsilon,
+                resid_pdrop=config.resid_pdrop,
+                attn_pdrop=config.attn_pdrop,
+                use_pos_embed=ch2.use_position_embed and ch1.use_position_embed
+            )
+            setattr(trans_name,vnt)
+            
+    def create_interim_convs(self,config:OmniTransformerCoreConfig):
+        #  if there is no Embedding in this channel 
+        #  Use input dims to figure 1dconv for the input sequence. 
+        #  else use the embedding size of channel and translate it to transformer's embedding size. 
+        for c in config.channel_configurations:
+            if c.no_embedding: 
+                conv_layer = nn.Conv1d(c.input_dim, \
+                                        config.transformer_embedding_size,\
+                                        kernel_size=1, \
+                                        padding=0, bias=False)
+            else:
+                conv_layer = nn.Conv1d(c.embedding_size,\
+                                        config.transformer_embedding_size,\
+                                        kernel_size=1, \
+                                        padding=0, bias=False)
+
+            layer_name = c.name+self.interm_convs_layer_common_name
+            
+            setattr(self,layer_name,conv_layer)
+            # self.interm_convs.append(c.name)
+    
+    def create_embeddings(self,channel_configurations: List[ChannelConfiguration]):
+        for c in channel_configurations:
+            present = False
+            if not c.no_embedding:
+                present = True
+                emb_layer_name = self.get_embedding_layer_name(c.name)
+                setattr(self,emb_layer_name,c.embedding_layer)
+            self.embeddings[c.name] = present
+    
+
+    def get_channel_embeddings(self,input_channels:List[ChannelData]) -> List[ChannelData]:
+        # return_channel_data = []
+        for c in input_channels:
+            if self.embeddings[c.name] == True:
+                emb_layer_name = self.get_embedding_layer_name(c.name)
+                emblayer = getattr(self, emb_layer_name)
+                c.sequence =  emblayer(c.sequence)
+        return input_channels
+                
+
+    def add_cls_tokens(self,input_channels:List[ChannelData])-> List[ChannelData]:
+        pass
+    
+    def get_cross_modal_features(self,input_channels:List[ChannelData],return_attentions=False):
+        pass
+    
+    def forward(self,input_channels:List[ChannelData],return_attentions=False):
+        """forward [summary]
+        Use input_channels objects and 
+        Mutate Input from those objects to create new objects
+
+        :param input_channels: [description]
+        :type input_channels: List[ChannelInput]
+        """
+        return self.get_channel_embeddings(input_channels)
+        # todo : Create Embeddings For Each Channel
+
+        # todo : Add class tokens to Seqs and Masks
+
+        # Todo : run cross channel jazz
+
+        # todo: use pooling strateggy. 
+
+        # todo : run final_layer against pooled Tenor
+
