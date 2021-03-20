@@ -453,6 +453,24 @@ class ChannelEmbeddingDiscrete(nn.Module):
     def forward(self, channel_seq):
         return self.embeddings(channel_seq)
 
+class TextEmbeddingsPretrain(nn.Module):
+    def __init__(self,is_learnable=False,pretrain_model=PRETRAINED_MODEL):
+        super().__init__()
+        from transformers import AutoModel
+        bert_model = AutoModel.from_pretrained(pretrain_model)
+        bert_emb = bert_model.embeddings.word_embeddings
+        text_embedding_dim = bert_emb.embedding_dim
+        num_emb = bert_emb.num_embeddings
+        # self.is_learnable=is_learnable
+        self.embeddings = nn.Embedding(
+            num_embeddings=num_emb, embedding_dim=text_embedding_dim)
+        self.embeddings.load_state_dict(bert_emb.state_dict())
+        if not is_learnable:
+            self.text_embeddings.weight.requires_grad = False
+    
+    def forward(self, channel_seq):
+        return self.embeddings(channel_seq)
+
 
 class ChannelEmbeddingContinous(nn.Module):
     def __init__(self, input_dims, embedding_size=128, is_learnable=True):
