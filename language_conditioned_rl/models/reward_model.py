@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 import pytorch_lightning as pl
 from dataclasses import dataclass
+from typing import Listt
 from .optimizer import PCGrad
 from .trasformer import \
     PRETRAINED_MODEL, \
