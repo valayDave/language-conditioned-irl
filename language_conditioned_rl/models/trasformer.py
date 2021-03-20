@@ -577,7 +577,7 @@ class OmniChannelTransformer(nn.Module):
 
     cls_tokens_common_name = '__cls_token'
 
-    def __init__(self, config: OmniTransformerCoreConfig,):
+    def __init__(self, config: OmniTransformerCoreConfig):
         super().__init__()
         self.modalities = [c.name for c in config.channel_configurations]
         # $ create embedding layer here
@@ -727,7 +727,7 @@ class OmniChannelTransformer(nn.Module):
         return input_channels
 
 
-    def get_cross_modal_features(self, input_channels: List[ChannelData], return_attentions=False)-> Tuple(List[ChannelData],List[dict]):
+    def get_cross_modal_features(self, input_channels: List[ChannelData], return_attentions=False)-> Tuple[List[ChannelData],List[dict]]:
         # For each `input_channel` we need combinations of all other elements 
         # Each elemen 
         all_channel_names = set([c.name for c in input_channels])
