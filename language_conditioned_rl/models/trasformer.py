@@ -706,13 +706,19 @@ class OmniChannelTransformer(nn.Module):
             self.embeddings[c.name] = present
 
     def get_channel_embeddings(self, input_channels: List[ChannelData]) -> List[ChannelData]:
-        # return_channel_data = []
+        return_channel_data = []
         for c in input_channels:
             if self.embeddings[c.name] == True:
                 emb_layer_name = self.get_embedding_layer_name(c.name)
                 emblayer = getattr(self, emb_layer_name)
-                c.sequence = emblayer(c.sequence)
-        return input_channels
+                return_channel_data.append(
+                    ChannelData(
+                        mask=c.mask,
+                        sequence=emblayer(c.sequence),
+                        name=c.name
+                    )
+                )
+        return return_channel_data
 
     def perform_dim_reduction_conv(self,input_channels: List[ChannelData]) -> List[ChannelData]:
         """perform_dim_reduction_conv 
