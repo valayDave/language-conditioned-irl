@@ -577,6 +577,8 @@ class OmniTransformerCoreConfig:
     channel_configurations: List[ChannelConfiguration] = field(
         default_factory=[])
 
+    debug:bool=False
+
     def to_json(self):
         pass  # todo
 
@@ -586,6 +588,7 @@ class ChannelData:
     mask: torch.Tensor = None
     sequence: torch.Tensor = None
     name: str = None
+
 
 
 class OmniChannelTransformer(nn.Module):
@@ -636,7 +639,7 @@ class OmniChannelTransformer(nn.Module):
 
         self.config = config
 
-        final_dims = config.transformer_embedding_size * 2 * len(self.modalities)
+        final_dims = config.transformer_embedding_size * (len(self.modalities)-1) * len(self.modalities)
 
         self.final_layer = nn.Sequential(
             nn.Linear(final_dims,final_dims),
@@ -696,7 +699,7 @@ class OmniChannelTransformer(nn.Module):
             vnt = VanillaTransformer(
                 num_layers=config.num_layers,
                 num_attention_heads=config.num_heads,
-                embedding_size=2*config.transformer_embedding_size,
+                embedding_size=(len(config.channel_configurations)-1)*config.transformer_embedding_size,
                 scale=config.scale,
                 embed_dropout=config.embd_pdrop,
                 layer_norm_epsilon=config.layer_norm_epsilon,
@@ -904,8 +907,10 @@ class OmniChannelTransformer(nn.Module):
         """
         # $ Create Embeddings For Each Channel
         embedding_modded_data = self.get_channel_embeddings(input_channels)
+        
         # $ run 1d conv layers dim reduction to bring dimensions of all seqs to be the same. 
         convd_channels = self.perform_dim_reduction_conv(embedding_modded_data)
+        
         # $ Add class tokens to Seqs and Masks
         cls_token_added_output = self.add_cls_tokens(convd_channels)
         # $ run cross channel jazz
