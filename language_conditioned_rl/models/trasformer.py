@@ -718,6 +718,14 @@ class OmniChannelTransformer(nn.Module):
                         name=c.name
                     )
                 )
+            else:
+                return_channel_data.append(
+                    ChannelData(
+                        mask=c.mask,
+                        sequence=c.sequence,
+                        name=c.name
+                    )
+                )
         return return_channel_data
 
     def perform_dim_reduction_conv(self,input_channels: List[ChannelData]) -> List[ChannelData]:
