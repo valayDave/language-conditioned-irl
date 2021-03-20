@@ -16,6 +16,19 @@ from einops.layers.torch import Rearrange
 
 PRETRAINED_MODEL = 'bert-base-uncased'
 
+DEFAULT_OMNI_TRANSFORMER_PARAMS = dict(
+  #  if pooling_strategy == 'mean' then mean of all
+  pooling_strategy = 'cls',  # Can be 'cls' or 'mean'
+  num_layers=8,\
+  transformer_embedding_size=64,\
+  layer_norm_epsilon=0.00001,\
+  scale=0.01,\
+  resid_pdrop=0.1,\
+  attn_pdrop=0.1,\
+  num_heads = 8,\
+  embd_pdrop=0.1,
+)
+
 
 class Transformer(nn.Module):
     def __init__(self,

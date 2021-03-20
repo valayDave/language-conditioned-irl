@@ -3,7 +3,16 @@ import torch
 import pytorch_lightning as pl
 from dataclasses import dataclass
 from .optimizer import PCGrad
-from .trasformer import PRETRAINED_MODEL, CrossModalBertEmbedTranformer
+from .trasformer import \
+    PRETRAINED_MODEL, \
+    CrossModalBertEmbedTranformer,\
+    OmniTransformerCoreConfig,\
+    OmniChannelTransformer,\
+    ChannelConfiguration,\
+    ChannelData,\
+    ChannelEmbeddingDiscrete,\
+    ChannelEmbeddingContinous,\
+    DEFAULT_OMNI_TRANSFORMER_PARAMS
 
 DEFAULT_CHECKPOINT_PROJECT_NAME = 'valay/Language-Grounded-Rewards'
 DEFAULT_CHECKPOINT_EXPERIMENT_NAME = 'LAN-21'
@@ -320,7 +329,8 @@ class LGRBehaviouralDiffLearnerPCGrad(pl.LightningModule):
         return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
 
-class LGRInferenceMixin(object):
+class LGRMountainCarInferenceMixin(object):
+
     def __init__(self,
                  max_traj_length=200,
                  action_space=3,
@@ -653,8 +663,190 @@ class LGRRewardOnlyHeadLearner(pl.LightningModule):
     return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
 
+class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
+  def __init__(self,
+               config:OmniTransformerCoreConfig,
+               data_params: DataAndOptimizerConf = DataAndOptimizerConf()
+               ):
+    super().__init__()
+    self.model = OmniChannelTransformer(config)
+    self.sfmx = nn.Softmax(dim=1)
+    self.model.final_layer_dims 
+    self.log_sigmoid = nn.LogSigmoid()
+    # Output Passed to Zero or one on sigmoid activation
+    self.reward_predictor = RewardHeadWithOnlyBackbone(
+        self.model.final_layer_dims , self.model.config.transformer_embedding_size)
+    self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
+    self.data_params = data_params
 
-class LGRBehaviouralDiffLearnerInference(LGRInferenceMixin, LGRBehaviouralDiffLearnerPCGrad):
+  # state,action should be full trajectory sequences for state and action for each element in the batch.
+  def forward(self,input_channels: List[ChannelData],return_attentions=False):
+    return self.model(input_channels,return_attentions=return_attentions)
+
+  def custom_loss_fn(self, pos_exp, neg_exp):
+    return - self.log_sigmoid(pos_exp - neg_exp).mean()
+
+  def get_backboone_features(self, batch):
+    pos_sent, pos_sent_mask, pos_traj, neg_sent, neg_sent_mask, neg_traj, pos_cat, neg_cat = batch
+    p_txt_channel_data = ChannelData(
+        name='text',
+        sequence=pos_sent,
+        mask=pos_sent_mask
+    )
+    p_traj_state_channel_data = ChannelData(
+        name='state',
+        sequence=pos_traj[0],
+        mask=pos_traj[1]
+    )
+    p_traj_action_channel_data = ChannelData(
+        name='action',
+        sequence=pos_traj[2],
+        mask=pos_traj[3]
+    )
+    n_txt_channel_data = ChannelData(
+        name='text',
+        sequence=neg_sent,
+        mask=neg_sent_mask
+    )
+    n_traj_state_channel_data = ChannelData(
+        name='state',
+        sequence=neg_traj[0],
+        mask=neg_traj[1]
+    )
+    n_traj_action_channel_data = ChannelData(
+        name='action',
+        sequence=neg_traj[2],
+        mask=neg_traj[3]
+    )
+   
+    # This will all break with return_attentions is True at training time.
+    pp_tensor,_ = self([p_traj_state_channel_data,p_traj_action_channel_data,p_txt_channel_data])  # P P
+    np_tensor,_ = self([n_traj_state_channel_data,n_traj_action_channel_data,p_txt_channel_data])  # N P
+    nn_tensor,_ = self([n_traj_state_channel_data,n_traj_action_channel_data,n_txt_channel_data])  # N N
+    pn_tensor,_ = self([p_traj_state_channel_data,p_traj_action_channel_data,n_txt_channel_data])  # P N
+    return ((
+        pp_tensor,
+        np_tensor,
+        nn_tensor,
+        pn_tensor
+    ), (pos_cat, neg_cat))
+
+  def get_reward_from_features(self, feature_tensor):
+    return self.reward_predictor(feature_tensor)
+
+  def reward_fn(self, state, action, text, text_mask=None, act_mask=None, st_mask=None):
+    with torch.no_grad():
+      txt_channel_data = ChannelData(
+          name='text',
+          sequence=text.to(self.device),
+          mask=text_mask.to(self.device)
+      )
+      traj_state_channel_data = ChannelData(
+          name='state',
+          sequence=state.to(self.device),
+          mask=st_mask.to(self.device)
+      )
+      traj_action_channel_data = ChannelData(
+          name='action',
+          sequence=action.to(self.device),
+          mask=act_mask.to(self.device)
+      )
+      features,_ = self.model([txt_channel_data,traj_state_channel_data,traj_action_channel_data])
+      reward = self.get_reward_from_features(features)
+    return reward
+
+  def training_step(self, batch, batch_nb):
+    intermediate_feature_tuple, category_tuple = self.get_backboone_features(
+        batch)
+    pp_tensor, np_tensor, nn_tensor, pn_tensor = intermediate_feature_tuple
+    pos_cat, neg_cat = category_tuple
+
+    pp_reward = self.get_reward_from_features(pp_tensor)
+    pn_reward = self.get_reward_from_features(pn_tensor)
+    nn_reward = self.get_reward_from_features(nn_tensor)
+    np_reward = self.get_reward_from_features(np_tensor)
+
+    p_loss = self.custom_loss_fn(pp_reward, np_reward)
+    n_loss = self.custom_loss_fn(nn_reward, pn_reward)
+
+    loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+
+    loss = loss_reward_diff
+
+    self.logger.log_metrics({
+        'train_loss': loss.detach().cpu().numpy(),
+        'epoch': self.current_epoch,
+    })
+    return {'loss': loss}
+
+  def validation_step(self, batch, batch_nb):
+    intermediate_feature_tuple, category_tuple = self.get_backboone_features(
+        batch)
+    pp_tensor, np_tensor, nn_tensor, pn_tensor = intermediate_feature_tuple
+    pos_cat, neg_cat = category_tuple
+
+    pp_reward = self.get_reward_from_features(pp_tensor)
+    pn_reward = self.get_reward_from_features(pn_tensor)
+    nn_reward = self.get_reward_from_features(nn_tensor)
+    np_reward = self.get_reward_from_features(np_tensor)
+
+    p_loss = self.custom_loss_fn(pp_reward, np_reward)
+    n_loss = self.custom_loss_fn(nn_reward, pn_reward)
+
+    loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+
+    loss = loss_reward_diff
+
+    self.logger.log_metrics({
+        'val_loss': loss.detach().cpu().numpy(),
+        'epoch': self.current_epoch,
+    })
+    return {'loss': loss, 'val_loss': loss.detach().cpu()}
+
+  def test_step(self, batch, batch_nb):
+    intermediate_feature_tuple, category_tuple = self.get_backboone_features(
+        batch)
+    pp_tensor, np_tensor, nn_tensor, pn_tensor = intermediate_feature_tuple
+    pos_cat, neg_cat = category_tuple
+
+    pp_reward = self.get_reward_from_features(pp_tensor)
+    pn_reward = self.get_reward_from_features(pn_tensor)
+    nn_reward = self.get_reward_from_features(nn_tensor)
+    np_reward = self.get_reward_from_features(np_tensor)
+
+    p_loss = self.custom_loss_fn(pp_reward, np_reward)
+    n_loss = self.custom_loss_fn(nn_reward, pn_reward)
+
+    loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+
+    loss = loss_reward_diff
+
+    self.logger.log_metrics({
+        'test_loss': loss.detach().cpu().numpy(),
+        'epoch': self.current_epoch,
+    })
+    return {'loss': loss}
+
+  def configure_optimizers(self):
+    from transformers import AdamW, get_cosine_with_hard_restarts_schedule_with_warmup
+
+    optimizer = AdamW(self.parameters(), lr=self.data_params.LEARNING_RATE,
+                        eps=1e-12, betas=(0.9, 0.999))
+    if self.data_params.NO_LR_SCHEDULER:
+        return [optimizer]
+    num_minibatch_steps = (
+        self.data_params.NUM_TRAIN_SAMPLES)/(self.data_params.BATCH_SIZE)
+    max_epochs = self.data_params.MAX_EPOCHS
+    warmup = self.data_params.WARMUP
+    t_total = self.data_params.TOTAL_STEPS
+    num_cycles = self.data_params.MAX_CYCLES
+    lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
+        optimizer, warmup, t_total, num_cycles=num_cycles)
+    return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
+
+
+
+class LGRBehaviouralDiffLearnerInference(LGRMountainCarInferenceMixin, LGRBehaviouralDiffLearnerPCGrad):
     def __init__(self,
                  *args,
                  max_traj_length=200,
@@ -665,7 +857,7 @@ class LGRBehaviouralDiffLearnerInference(LGRInferenceMixin, LGRBehaviouralDiffLe
                  loaded_checkpoint=None,
                  pretrained_model=PRETRAINED_MODEL, **kwargs):
         LGRBehaviouralDiffLearnerPCGrad.__init__(self, *args, **kwargs)
-        LGRInferenceMixin.__init__(self,
+        LGRMountainCarInferenceMixin.__init__(self,
                                    max_traj_length=max_traj_length,
                                    action_space=action_space,
                                    max_text_len=max_text_len,
@@ -675,7 +867,7 @@ class LGRBehaviouralDiffLearnerInference(LGRInferenceMixin, LGRBehaviouralDiffLe
                                    pretrained_model=pretrained_model)
 
 
-class LGRPureContrastiveRewardLearner(LGRInferenceMixin, LGRRewardOnlyHeadLearner):
+class LGRPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, LGRRewardOnlyHeadLearner):
     def __init__(self,
                  *args,
                  max_traj_length=200,
@@ -686,7 +878,7 @@ class LGRPureContrastiveRewardLearner(LGRInferenceMixin, LGRRewardOnlyHeadLearne
                  loaded_checkpoint=None,
                  pretrained_model=PRETRAINED_MODEL, **kwargs):
         LGRRewardOnlyHeadLearner.__init__(self, *args, **kwargs)
-        LGRInferenceMixin.__init__(self,
+        LGRMountainCarInferenceMixin.__init__(self,
                                    max_traj_length=max_traj_length,
                                    action_space=action_space,
                                    max_text_len=max_text_len,
@@ -696,6 +888,62 @@ class LGRPureContrastiveRewardLearner(LGRInferenceMixin, LGRRewardOnlyHeadLearne
                                    pretrained_model=pretrained_model)
 
 
-
+class LGROmniChannelPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, LGROmniChannelRewardOnlyHeadLearner):
+    def __init__(self,
+                 *args,
+                 max_traj_length=200,
+                 action_space=3,
+                 max_text_len=25,
+                 action_type='discrete',
+                 experiment_name=None,
+                 loaded_checkpoint=None,
+                 pretrained_model=PRETRAINED_MODEL, **kwargs):
+        LGRRewardOnlyHeadLearner.__init__(self, *args, **kwargs)
+        LGRMountainCarInferenceMixin.__init__(self,
+                                   max_traj_length=max_traj_length,
+                                   action_space=action_space,
+                                   max_text_len=max_text_len,
+                                   action_type=action_type,
+                                   experiment_name=experiment_name,
+                                   loaded_checkpoint=loaded_checkpoint,
+                                   pretrained_model=pretrained_model)
 
     
+def make_montaincar_omni_channel_model(tokenizer,\
+                                    CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRANSFORMER_PARAMS,\
+                                    NUM_ACTIONS=3,\
+                                    ACTION_EMB_SIZE=128,\
+                                    TXT_EMB_SIZE=128,\
+                                    data_params=DataAndOptimizerConf()):
+    state_channel_conf = ChannelConfiguration(
+        name='state',
+        channel_type='continous',
+        input_dim=2,
+        embedding_size=None,
+        no_embedding=True,
+        use_position_embed=True,
+    )
+
+    action_channel_conf = ChannelConfiguration(
+        name='action',
+        channel_type='discrete',
+        input_dim=None,
+        embedding_size=ACTION_EMB_SIZE,
+        no_embedding=False,
+        embedding_layer = ChannelEmbeddingDiscrete(NUM_ACTIONS+1,embedding_size=ACTION_EMB_SIZE,is_learnable=False),
+        use_position_embed=True,
+    )
+
+    text_channel_conf = ChannelConfiguration(
+        name='text',
+        channel_type='discrete',
+        input_dim=None,
+        embedding_size=TXT_EMB_SIZE,
+        no_embedding=False,
+        embedding_layer = ChannelEmbeddingDiscrete(len(tokenizer),embedding_size=TXT_EMB_SIZE,is_learnable=False),
+        use_position_embed=True,
+    )
+    channel_configurations = [state_channel_conf,action_channel_conf,text_channel_conf]
+    transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMS,channel_configurations=channel_configurations)
+    
+    return LGROmniChannelPureContrastiveRewardLearner(transformer_config,data_params=data_params)
