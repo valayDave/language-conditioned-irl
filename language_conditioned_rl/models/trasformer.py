@@ -558,6 +558,15 @@ class ChannelData:
 
 
 class OmniChannelTransformer(nn.Module):
+    """OmniChannelTransformer 
+    If Attention is All you need. 
+    Then attention should be applied to data coming from any modality. 
+    
+    Why Not? 
+    This is a transformer which is elastic for N-Sequence input channels
+    and computes attention between each and every one of the sequences.
+
+    """
 
     join_str = "__"
 
@@ -604,6 +613,7 @@ class OmniChannelTransformer(nn.Module):
             nn.Dropout(config.dropout),
             nn.Linear(final_dims, final_dims)
         )
+        self.final_layer_dims = final_dims
 
     # NAMING FNS COME HERE>
     def get_vanilla_trasformer_layer_name(self, mod: str):
@@ -705,6 +715,10 @@ class OmniChannelTransformer(nn.Module):
         return input_channels
 
     def perform_dim_reduction_conv(self,input_channels: List[ChannelData]) -> List[ChannelData]:
+        """perform_dim_reduction_conv 
+        Perform 1d convolution on the input channels to 
+        make dimensions even out for all sequences before we feed it to the transformer.
+        """
         for c in input_channels:
             cnv_layer_name = self.get_conv_layer_name(c.name)
             cnv_layer = getattr(self,cnv_layer_name)
@@ -806,8 +820,8 @@ class OmniChannelTransformer(nn.Module):
             return final_transformer_op,attn_map
 
     def pool_sequences(self,input_channels: List[ChannelData]):
-        """pool_cls_token 
-        todo : add more pooling strategies
+        """pool_sequences 
+        Pools either the cls token uses mean pooling strategy.
         """
         pooled_features = []
         for c in input_channels:
@@ -819,6 +833,9 @@ class OmniChannelTransformer(nn.Module):
         return pooled_features
     
     def transform_pooled_sequence_features(self,input_channels:List[ChannelData]):
+        """transform_pooled_sequence_features 
+        Run final feedforward and resudial on the concatenated cross channel predictions. 
+        """
         concat_tensor = torch.cat(tuple(c.sequence for c in input_channels),dim=1)
         concat_tensor_proj = self.final_layer(concat_tensor)
         concat_tensor_proj += concat_tensor
