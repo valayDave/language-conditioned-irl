@@ -819,7 +819,7 @@ class OmniChannelTransformer(nn.Module):
         return pooled_features
     
     def transform_pooled_sequence_features(self,input_channels:List[ChannelData]):
-        concat_tensor = torch.cat((c.sequence for c in input_channels),dim=1)
+        concat_tensor = torch.cat(tuple(c.sequence for c in input_channels),dim=1)
         concat_tensor_proj = self.final_layer(concat_tensor)
         concat_tensor_proj += concat_tensor
         return concat_tensor_proj
