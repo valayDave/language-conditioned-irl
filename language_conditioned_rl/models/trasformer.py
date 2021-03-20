@@ -725,14 +725,21 @@ class OmniChannelTransformer(nn.Module):
         Perform 1d convolution on the input channels to 
         make dimensions even out for all sequences before we feed it to the transformer.
         """
+        return_channel_data = []
         for c in input_channels:
             cnv_layer_name = self.get_conv_layer_name(c.name)
             cnv_layer = getattr(self,cnv_layer_name)
             input_tensor = c.sequence.transpose(1, 2)
             cnv_tensor = cnv_layer(input_tensor)
-            c.sequence = cnv_tensor.permute(0, 2, 1)
+            return_channel_data.append(
+                ChannelData(
+                    mask=c.mask,
+                    sequence=cnv_tensor.permute(0, 2, 1),
+                    name=c.name
+                )
+            )
         
-        return input_channels
+        return return_channel_data
 
     def add_cls_tokens(self, input_channels: List[ChannelData]) -> List[ChannelData]:
         b, n, _ = input_channels[0].sequence.size()
