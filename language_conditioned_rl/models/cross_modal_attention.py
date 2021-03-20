@@ -139,8 +139,8 @@ class CrossModalAttentionWithMultChannelMask(CrossModalAttentionWithMask):
 
         if attnx is not None and attny is not None:
             # Create this Multi-D Mask. If both attention masks for both sequences are present.
-            combined_mask = torch.einsum('bx,by->bxy',mask_x,mask_y)
-            combined_mask = self.get_extended_attention_mask(combined_mask)
+            combined_mask = torch.einsum('bx,by->bxy',mask_y,mask_x)
+            combined_mask = self.get_extended_attention_mask(combined_mask,seq_x.shape)
             scaled_dot_product += combined_mask
 
         elif attnx is not None:
