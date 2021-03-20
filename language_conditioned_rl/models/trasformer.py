@@ -740,7 +740,7 @@ class OmniChannelTransformer(nn.Module):
         for channel_tensors_tuple in itertools.combinations(input_channels,len(input_channels)-1):
             cross_channel_names = set(list(map(lambda x:x.name,channel_tensors_tuple)))
             current_channel_name = all_channel_names - cross_channel_names
-            current_channel_name = current_channel_name[0]
+            current_channel_name = list(current_channel_name)[0]
             current_channel_object = channel_lookup_dict[current_channel_name]
             if return_attentions:
                 # Use the current channel and other channels to find cross channel features. 
@@ -816,7 +816,7 @@ class OmniChannelTransformer(nn.Module):
                 name = c.name,
                 sequence = self.to_cls(c.sequence[:, 0]) if self.pooling_strategy == 'cls' else c.sequence.mean(dim=1)
             ))
-        return input_channels
+        return pooled_features
     
     def transform_pooled_sequence_features(self,input_channels:List[ChannelData]):
         concat_tensor = torch.cat((c.sequence for c in input_channels),dim=1)

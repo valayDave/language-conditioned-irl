@@ -139,7 +139,7 @@ class CrossModalAttentionWithMultChannelMask(CrossModalAttentionWithMask):
 
         if attnx is not None and attny is not None:
             # Create this Multi-D Mask. If both attention masks for both sequences are present.
-            combined_mask = ((attnx.squeeze(dim=2).unsqueeze(-1)) + attny)
+            combined_mask = ((attny.squeeze(dim=2).unsqueeze(-1)) + attnx)
             scaled_dot_product += combined_mask
 
         elif attnx is not None:
