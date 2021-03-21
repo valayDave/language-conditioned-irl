@@ -990,7 +990,7 @@ class OmniChannelTransformer(nn.Module):
         # $ run cross channel jazz
         transformered_features,attn_maps = self.run_transformer(cls_token_added_output,return_attentions=return_attentions)
         # $ use pooling strateggy.
-        pooled_seqs = self.pool_sequences(transformered_features)
+        pooled_seqs = self.get_cross_modal_features(transformered_features)
         # $ run final_layer against pooled Tenor
         projection_tensor = self.transform_pooled_sequence_features(pooled_seqs)
         return projection_tensor,attn_maps
