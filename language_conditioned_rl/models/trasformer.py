@@ -776,15 +776,20 @@ class OmniChannelTransformer(nn.Module):
 
     def add_cls_tokens(self, input_channels: List[ChannelData]) -> List[ChannelData]:
         b, n, _ = input_channels[0].sequence.size()
+        channs =[]
         for c in input_channels:
             cls_name = self.get_cls_token_name(c.name)
             cls_token = getattr(self,cls_name)
             prepend_cls_token = einops.repeat(cls_token,'() n d -> b n d',b=b)
-            c.sequence = torch.cat((c.sequence,prepend_cls_token),dim=1)
-            if c.mask is not None:
-                c.mask = torch.cat((torch.ones(b).unsqueeze(1).to(c.sequence.device), c.mask), dim=1)
-
-        return input_channels
+            channs.append(
+                ChannelData(
+                    name=c.name,
+                    sequence = torch.cat((c.sequence,prepend_cls_token),dim=1),
+                    mask= None if c.mask is None else torch.cat((torch.ones(b).unsqueeze(1).to(c.sequence.device), c.mask), dim=1)
+                )
+            )
+            
+        return channs
 
 
     def get_cross_modal_features(self, input_channels: List[ChannelData], return_attentions=False)-> Tuple[List[ChannelData],List[dict]]:
@@ -796,18 +801,25 @@ class OmniChannelTransformer(nn.Module):
         }
         transformed_channel_data = []
         attn_maps = []
+        running_tups = []
         # for each channel find the other channels that it can cross-attend to. 
+        # Create a tuple of that. 
         for channel_tensors_tuple in itertools.combinations(input_channels,len(input_channels)-1):
             cross_channel_names = set(list(map(lambda x:x.name,channel_tensors_tuple)))
             current_channel_name = all_channel_names - cross_channel_names
             current_channel_name = list(current_channel_name)[0]
             current_channel_object = channel_lookup_dict[current_channel_name]
+            running_tups.append(
+                (current_channel_object,channel_tensors_tuple)
+            )
+        
+        for rtx in running_tups:
             if return_attentions:
                 # Use the current channel and other channels to find cross channel features. 
-                current_channel_features, current_channel_attn_map = self.extract_transformer_features(current_channel_object,channel_tensors_tuple,return_attentions=True)
+                current_channel_features, current_channel_attn_map = self.extract_transformer_features(rtx[0],rtx[1],return_attentions=True)
                 attn_maps.append(current_channel_attn_map)
             else:
-                current_channel_features = self.extract_transformer_features(current_channel_object,channel_tensors_tuple,return_attentions=False)
+                current_channel_features = self.extract_transformer_features(rtx[0],rtx[1],return_attentions=False)
             
             transformed_channel_data.append(
                 ChannelData(
