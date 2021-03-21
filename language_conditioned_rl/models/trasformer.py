@@ -81,7 +81,7 @@ class VanillaTransformer(nn.Module):
                 embedding_size)
 
         for _ in range(num_layers):
-            self.layers.append(MultiModalAttentionBlock(
+            self.layers.append(Block(
                 embedding_size=embedding_size,
                 layer_norm_epsilon=layer_norm_epsilon,
                 scale=scale,
@@ -89,25 +89,16 @@ class VanillaTransformer(nn.Module):
                 attn_pdrop=attn_pdrop,
                 num_attention_heads=num_attention_heads))
 
-    def forward(self, x, mask=None,return_attentions=False):
+    def forward(self, x, mask=None):
         # Add positional embedding
         x = self.embed_scale * x  # (b,len,d)
         if self.embed_positions is not None:
             x += self.embed_positions(x[:, :, 0])
         x = F.dropout(x, p=self.embed_dropout, training=self.training)
-
         hidden = x
-        if not return_attentions:
-            for attention_block in self.layers:
-                hidden = attention_block(hidden,hidden,mask=mask)
-            return hidden
-        else:
-            attn_vals= []
-            for attention_block in self.layers:
-                hidden,attn = attention_block(hidden,hidden,mask=mask)
-                attn_vals.append(attn)
-            return hidden, torch.stack(attn_vals)
-
+        for attention_block in self.layers:
+            hidden = attention_block(hidden)
+        return hidden
 
 class MultiModalTransformer(nn.Module):
     def __init__(self,
