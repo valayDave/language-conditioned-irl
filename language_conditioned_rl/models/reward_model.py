@@ -14,7 +14,7 @@ from .trasformer import \
     ChannelData,\
     ChannelEmbeddingDiscrete,\
     ChannelEmbeddingContinous,\
-    DEFAULT_OMNI_TRANSFORMER_PARAMS, TextEmbeddingsPretrain
+    DEFAULT_OMNI_TRANSFORMER_PARAMS, TextEmbeddingsPretrain, UniChannelTransformer
 
 DEFAULT_CHECKPOINT_PROJECT_NAME = 'valay/Language-Grounded-Rewards'
 DEFAULT_CHECKPOINT_EXPERIMENT_NAME = 'LAN-21'
@@ -672,10 +672,14 @@ class LGRRewardOnlyHeadLearner(pl.LightningModule):
 class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     def __init__(self,
                  config: OmniTransformerCoreConfig,
-                 data_params: DataAndOptimizerConf = DataAndOptimizerConf()
+                 data_params: DataAndOptimizerConf = DataAndOptimizerConf(),
+                 is_cross_modal = True
                  ):
         super().__init__()
-        self.model = OmniChannelTransformer(config)
+        if is_cross_modal:
+            self.model = OmniChannelTransformer(config)
+        else: 
+            self.model = UniChannelTransformer(config)
         self.sfmx = nn.Softmax(dim=1)
         self.model.final_layer_dims
         self.log_sigmoid = nn.LogSigmoid()
