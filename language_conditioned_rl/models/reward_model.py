@@ -1010,7 +1010,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
                     f"Unknown Channel : {c['name']} Choose From : {','.join(list(MOUNTAIN_CAR_CHANNELS.keys()))}")
             channel_maker = MOUNTAIN_CAR_CHANNELS[c['name']](
                 c)  # instantiate channel maker
-            config_channnels.append(channel_maker.make_channnel())
+            config_channnels.append(channel_maker.make_channel())
 
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
             config = NEPUTUNE_JSON_FIXER(config['transformer_params'])
