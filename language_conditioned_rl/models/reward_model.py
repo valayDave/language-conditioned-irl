@@ -958,7 +958,7 @@ class LGROmniChannelPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, L
                  experiment_name=None,
                  loaded_checkpoint=None,
                  pretrained_model=PRETRAINED_MODEL, **kwargs):
-        LGRRewardOnlyHeadLearner.__init__(self, *args, **kwargs)
+        LGROmniChannelRewardOnlyHeadLearner.__init__(self, *args, **kwargs)
         LGRMountainCarInferenceMixin.__init__(self,
                                    max_traj_length=max_traj_length,
                                    action_space=action_space,
@@ -998,7 +998,7 @@ class MountainCarActionChannel(ChannelMaker):
             input_dim=None,
             embedding_size= emb_size,
             no_embedding=False,
-            embedding_layer = ChannelEmbeddingDiscrete(3+1,embedding_size=ACTION_EMB_SIZE,is_learnable=True),
+            embedding_layer = ChannelEmbeddingDiscrete(3+1,embedding_size=emb_size,is_learnable=True),
             use_position_embed=True,
         )
 
