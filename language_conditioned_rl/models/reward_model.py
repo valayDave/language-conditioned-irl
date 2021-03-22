@@ -673,10 +673,10 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     def __init__(self,
                  config: OmniTransformerCoreConfig,
                  data_params: DataAndOptimizerConf = DataAndOptimizerConf(),
-                 is_cross_modal = True
+                 is_cross_channel = True
                  ):
         super().__init__()
-        if is_cross_modal:
+        if is_cross_channel:
             self.model = OmniChannelTransformer(config)
         else: 
             self.model = UniChannelTransformer(config)
@@ -1114,6 +1114,7 @@ MOUNTAIN_CAR_CHANNELS = {
 
 def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRANSFORMER_PARAMS,
                                        ACTION_EMB_SIZE=128,
+                                       is_cross_channel=True,
                                        data_params=DataAndOptimizerConf()):
     channel_configurations = []
     for channel_maker in MOUNTAIN_CAR_CHANNELS.values():
@@ -1127,4 +1128,4 @@ def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRAN
     transformer_config = OmniTransformerCoreConfig(
         **CORE_TRANSFORMER_PARAMS, channel_configurations=channel_configurations)
 
-    return LGROmniChannelPureContrastiveRewardLearner(transformer_config, data_params=data_params)
+    return LGROmniChannelPureContrastiveRewardLearner(transformer_config, data_params=data_params,is_cross_channel=is_cross_channel)
