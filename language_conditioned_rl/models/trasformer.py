@@ -824,8 +824,8 @@ class OmniChannelTransformer(nn.Module):
             
             transformed_channel_data.append(
                 ChannelData(
-                    mask = current_channel_object.mask,
-                    name = current_channel_object.name,
+                    mask = rtx[0].mask,
+                    name = rtx[0].name,
                     sequence = current_channel_features
                 )
             )
