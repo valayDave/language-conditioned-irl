@@ -22,7 +22,7 @@ DEFAULT_CHECKPOINT_PATH = 'checkpoints/epoch=12-val_loss=0.98.ckpt'
 DEFAULT_ACTION_EMB_SIZE = 128
 
 def NEPUTUNE_JSON_FIXER(json_str):
-    return json.loads(zz.replace("'",'"').replace('None','null').replace('True','true').replace('False','false'))
+    return json.loads(json_str.replace("'",'"').replace('None','null').replace('True','true').replace('False','false'))
 
 
 @dataclass
