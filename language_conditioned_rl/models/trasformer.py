@@ -1026,7 +1026,7 @@ class UniChannelTransformer(nn.Module):
             vnt = VanillaTransformer(
                 num_layers=config.num_layers,
                 num_attention_heads=config.num_heads,
-                embedding_size=(len(config.channel_configurations)-1)*config.transformer_embedding_size,
+                embedding_size=config.transformer_embedding_size,
                 scale=config.scale,
                 embed_dropout=config.embd_pdrop,
                 layer_norm_epsilon=config.layer_norm_epsilon,
