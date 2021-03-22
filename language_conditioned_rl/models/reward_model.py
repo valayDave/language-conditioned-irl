@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 from .optimizer import PCGrad
 from .trasformer import \
-    PRETRAINED_MODEL, \
+    ChannelMaker, PRETRAINED_MODEL, \
     CrossModalBertEmbedTranformer,\
     OmniTransformerCoreConfig,\
     OmniChannelTransformer,\
@@ -13,12 +13,12 @@ from .trasformer import \
     ChannelData,\
     ChannelEmbeddingDiscrete,\
     ChannelEmbeddingContinous,\
-    DEFAULT_OMNI_TRANSFORMER_PARAMS
+    DEFAULT_OMNI_TRANSFORMER_PARAMS, TextEmbeddingsPretrain
 
 DEFAULT_CHECKPOINT_PROJECT_NAME = 'valay/Language-Grounded-Rewards'
 DEFAULT_CHECKPOINT_EXPERIMENT_NAME = 'LAN-21'
 DEFAULT_CHECKPOINT_PATH = 'checkpoints/epoch=12-val_loss=0.98.ckpt'
-
+DEFAULT_ACTION_EMB_SIZE = 128
 
 @dataclass
 class DataAndOptimizerConf:
@@ -721,6 +721,7 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     )
    
     # This will all break with return_attentions is True at training time.
+    # THE ORDER IS SUPER IMPORTANT. INFERENCE RESULTS GO TO SHIT WITHOUT IT!
     pp_tensor,_ = self([p_traj_state_channel_data,p_traj_action_channel_data,p_txt_channel_data])  # P P
     np_tensor,_ = self([n_traj_state_channel_data,n_traj_action_channel_data,p_txt_channel_data])  # N P
     nn_tensor,_ = self([n_traj_state_channel_data,n_traj_action_channel_data,n_txt_channel_data])  # N N
@@ -752,7 +753,10 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
           sequence=action.to(self.device),
           mask=act_mask.to(self.device)
       )
-      features,_ = self.model([txt_channel_data,traj_state_channel_data,traj_action_channel_data])
+      # THE ORDER SHOULD BE SAME If the CLS Token's are catted without dictionary enforcing same order!!!!!!!!!
+      # Why : Because we cat the class tokens. If the order conserving step is not applied 
+      # at cls token then the model outputs garbage if give sequnence change. 
+      features,_ = self.model([traj_state_channel_data,traj_action_channel_data,txt_channel_data])
       reward = self.get_reward_from_features(features)
     return reward
 
@@ -846,7 +850,6 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
 
-
 class LGRBehaviouralDiffLearnerInference(LGRMountainCarInferenceMixin, LGRBehaviouralDiffLearnerPCGrad):
     def __init__(self,
                  *args,
@@ -889,6 +892,62 @@ class LGRPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, LGRRewardOnl
                                    pretrained_model=pretrained_model)
 
 
+class LGROmniChannelInferenceMixinMountainCar(LGRMountainCarInferenceMixin):
+    def __init__(self, max_traj_length, action_space, max_text_len, action_type, experiment_name, loaded_checkpoint, pretrained_model):
+        super().__init__(max_traj_length=max_traj_length, action_space=action_space, max_text_len=max_text_len, action_type=action_type, experiment_name=experiment_name, loaded_checkpoint=loaded_checkpoint, pretrained_model=pretrained_model)
+    
+    @classmethod
+    def from_neptune(cls,
+                     project_name,
+                     experiment_name,
+                     checkpoint_path, base_path='model_checkpoints/',
+                     api_token=None,):
+        import neptune
+        import os
+        import json
+        if api_token is None:
+            raise Exception("API Token Missing")
+
+        project = neptune.init(project_name,
+                               api_token=api_token
+                               )
+        my_exp = project.get_experiments(id=experiment_name)[0]
+        my_exp.download_artifact(checkpoint_path, destination_dir=base_path)
+        ckck_name = checkpoint_path.split('/')[1]
+        checkpoint = torch.load(os.path.join(
+            base_path, ckck_name), map_location=torch.device('cpu'))
+
+        config = my_exp.get_parameters()
+        if 'note' in config:
+            del config['note']
+        if 'loss_scale' in config:
+            del config['loss_scale']
+        if 'data_params' in config:
+            del config['data_params']
+        # print(config)
+        if 'channel_configurations' not in config:
+            raise Exception("Cannot Load Omni-Channel Model As no Channel Configurations Provided ")
+        
+        config_channnels = []
+        channel_cfgs = json.loads(config['channel_configurations'])
+        for c in channel_cfgs:
+            if c['name'] not in MOUNTAIN_CAR_CHANNELS:
+                raise Exception(f"Unknown Channel : {c['name']} Choose From : {','.join(list(MOUNTAIN_CAR_CHANNELS.keys()))}")
+            channel_maker = MOUNTAIN_CAR_CHANNELS[c['name']](c) # instantiate channel maker
+            config_channnels.append(channel_maker.make_channnel())
+
+        if 'transformer_params' in config: # The was after Bringing new ddataset to log everything properly
+            config = json.loads(config['transformer_params'])
+
+        trannsformer_config = OmniTransformerCoreConfig(**config,channel_configurations=config_channnels)
+        trans = cls(trannsformer_config, experiment_name=experiment_name,
+                    loaded_checkpoint=checkpoint_path)
+
+        missing_keys, unexpected_keys = trans.load_state_dict(
+            checkpoint['state_dict'])
+        # print(f'missing_keys ,unexpected_keys, {missing_keys ,unexpected_keys}')
+        return trans, config
+
 class LGROmniChannelPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, LGROmniChannelRewardOnlyHeadLearner):
     def __init__(self,
                  *args,
@@ -909,42 +968,80 @@ class LGROmniChannelPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, L
                                    loaded_checkpoint=loaded_checkpoint,
                                    pretrained_model=pretrained_model)
 
+
+
+class MountainCarStateChannel(ChannelMaker):
+    def __init__(self, **kwags) -> None:
+        super().__init__(**kwags)
+        self.name = 'state'
     
-def make_montaincar_omni_channel_model(tokenizer,\
-                                    CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRANSFORMER_PARAMS,\
-                                    NUM_ACTIONS=3,\
+    def make_channel(self) -> ChannelConfiguration:
+        return ChannelConfiguration(
+            name='state',
+            channel_type='continous',
+            input_dim=2,
+            embedding_size=None,
+            no_embedding=True,
+            use_position_embed=True,
+        )
+
+class MountainCarActionChannel(ChannelMaker):
+    def __init__(self, **kwags) -> None:
+        super().__init__(**kwags)
+        self.name = 'action'
+
+    def make_channel(self) -> ChannelConfiguration:
+        emb_size = DEFAULT_ACTION_EMB_SIZE if self.embedding_size is None else self.embedding_size
+        return ChannelConfiguration(
+            name='action',
+            channel_type='discrete',
+            input_dim=None,
+            embedding_size= emb_size,
+            no_embedding=False,
+            embedding_layer = ChannelEmbeddingDiscrete(3+1,embedding_size=ACTION_EMB_SIZE,is_learnable=True),
+            use_position_embed=True,
+        )
+
+class TextChannel(ChannelMaker):
+    def __init__(self, **kwags) -> None:
+        super().__init__(**kwags)
+        self.name = 'text'
+
+    def make_channel(self) -> ChannelConfiguration:
+        txt_emb_layer = TextEmbeddingsPretrain(is_learnable=False)
+        text_channel_conf = ChannelConfiguration(
+            name='text',
+            channel_type='discrete',
+            input_dim=None,
+            embedding_size=txt_emb_layer.embeddings.embedding_dim,
+            no_embedding=False,
+            embedding_layer = txt_emb_layer,
+            use_position_embed=True,
+        )
+        return text_channel_conf
+    
+        
+
+MOUNTAIN_CAR_CHANNELS = {
+    'state':MountainCarStateChannel,
+    'action':MountainCarActionChannel,
+    'text':TextChannel
+}
+
+
+    
+def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRANSFORMER_PARAMS,\
                                     ACTION_EMB_SIZE=128,\
-                                    TXT_EMB_SIZE=128,\
                                     data_params=DataAndOptimizerConf()):
-    state_channel_conf = ChannelConfiguration(
-        name='state',
-        channel_type='continous',
-        input_dim=2,
-        embedding_size=None,
-        no_embedding=True,
-        use_position_embed=True,
-    )
+    channel_configurations = []
+    for channel_maker in MOUNTAIN_CAR_CHANNELS.values():
+        chm = channel_maker()
+        if chm.name == 'action':
+            chm.embedding_size=ACTION_EMB_SIZE
+        channel_configurations.append(
+            chm.make_channel()
+        )     
 
-    action_channel_conf = ChannelConfiguration(
-        name='action',
-        channel_type='discrete',
-        input_dim=None,
-        embedding_size=ACTION_EMB_SIZE,
-        no_embedding=False,
-        embedding_layer = ChannelEmbeddingDiscrete(NUM_ACTIONS+1,embedding_size=ACTION_EMB_SIZE,is_learnable=False),
-        use_position_embed=True,
-    )
-
-    text_channel_conf = ChannelConfiguration(
-        name='text',
-        channel_type='discrete',
-        input_dim=None,
-        embedding_size=TXT_EMB_SIZE,
-        no_embedding=False,
-        embedding_layer = ChannelEmbeddingDiscrete(len(tokenizer),embedding_size=TXT_EMB_SIZE,is_learnable=False),
-        use_position_embed=True,
-    )
-    channel_configurations = [state_channel_conf,action_channel_conf,text_channel_conf]
     transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMS,channel_configurations=channel_configurations)
     
     return LGROmniChannelPureContrastiveRewardLearner(transformer_config,data_params=data_params)

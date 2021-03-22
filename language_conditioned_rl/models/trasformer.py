@@ -537,6 +537,17 @@ class ChannelConfiguration:
     embedding_layer: nn.Module = None
     use_position_embed: bool = True
 
+    def to_json(self):
+        return dict(
+            name= self.name,
+            channel_type= self.channel_type,
+            input_dim= self.input_dim,
+            embedding_size= self.embedding_size,
+            no_embedding= self.no_embedding,
+            embedding_layer= None,
+            use_position_embed= self.use_position_embed
+        )
+
     def __post_init__(self):
         if not self.no_embedding and self.embedding_layer is None:
             raise Exception(
@@ -832,77 +843,6 @@ class OmniChannelTransformer(nn.Module):
             # current_channel_object.sequence = current_channel_features
         return transformed_channel_data,attn_maps
 
-    def run_transformer(self, input_channels: List[ChannelData], return_attentions=False)-> Tuple[List[ChannelData],List[dict]]:
-        # instead of making a dict, Make explicit tuples of data to send to the transformer.  
-        chidx = list(range(len(input_channels)))
-        idx_set = set(chidx)
-        idx_combos = list(itertools.combinations(chidx,len(chidx)-1))
-        cross_feature_tups = []
-        for comb in idx_combos:
-            mod_idx = list(idx_set - set(comb))[0]
-            mod_tup = (input_channels[mod_idx].name,input_channels[mod_idx].sequence,input_channels[mod_idx].mask)
-            cm_tup = tuple((input_channels[ix].name,input_channels[ix].sequence,) for ix in comb)
-            cross_feature_tups.append(
-                (
-                    mod_tup,cm_tup
-                )
-            )
-        return_data = []
-        attn_maps = []
-        for mod_tup in cross_feature_tups:
-            idx_mo_tup,cross_mod_tup = mod_tup
-            name,modality_tensor,mod_mask = idx_mo_tup
-            mod_opx = self.extract_cross_modal_tensors(
-                name,modality_tensor,cross_mod_tup,modality_mask=mod_mask,return_attentions=return_attentions
-            )
-            channel_tensor= mod_opx
-            if return_attentions:
-                channel_tensor , attn_map = mod_opx
-                attn_maps.append(attn_map)
-
-            return_data.append(
-                ChannelData(
-                    sequence=channel_tensor,
-                    name=name
-                )
-            )
-        
-        return return_data,attn_maps
-
-
-    def extract_cross_modal_tensors(self, modality, modality_tensor, cross_modal_tensors, modality_mask=None, return_attentions=False):
-        '''
-        modality : str : should be present in `modalities`
-        modality_tensor : torch.Tensor (B,x,d)
-        cross_modal_tensors : 
-        (
-            (modality,torch.Tensor (B,p,d)),(modality,torch.Tensor (B,v,d))
-        ) : tuple of tuples. Each contains modalitystring and tensor
-
-        Runs: 
-        '''
-        cross_mod_tensors = []
-        attn_map = {}
-        for cross_mod, cm_tensor in cross_modal_tensors:
-            
-            cross_mod_trans_name = self.get_cross_mod_layer_name(modality,cross_mod)
-            transformer = getattr(self, cross_mod_trans_name)
-            if not return_attentions:
-                cross_mod_tensors.append(transformer(
-                    modality_tensor, cm_tensor, mask=modality_mask))
-            else:
-                opx, attns = transformer(
-                    modality_tensor, cm_tensor, mask=modality_mask, return_attentions=return_attentions)
-                cross_mod_tensors.append(opx)
-                attn_map[cross_mod_trans_name] = attns
-
-        cross_modal_tensors = torch.cat(cross_mod_tensors, dim=2)
-        modality_trans_name = self.get_vanilla_trasformer_layer_name(modality) #modality + self.mod_trans_common_name
-        mod_transformer = getattr(self, modality_trans_name)
-        if not return_attentions:
-            return mod_transformer(cross_modal_tensors)
-        else:
-            return mod_transformer(cross_modal_tensors), attn_map
 
     def extract_transformer_features(self,index_modality:ChannelData,cross_modalities:Tuple[ChannelData],return_attentions=False):
         """extract_transformer_features [summary]
@@ -1002,3 +942,29 @@ class OmniChannelTransformer(nn.Module):
         # $ run final_layer against pooled Tenor
         projection_tensor = self.transform_pooled_sequence_features(pooled_seqs)
         return projection_tensor,attn_maps
+
+
+class ChannelMaker(metaclass=abc.ABCMeta):
+    
+    def __init__(self,
+                name: str = '',
+                channel_type: str = 'discrete',
+                input_dim: int = None,
+                embedding_size: int = None,
+                no_embedding: bool = False,
+                embedding_layer: nn.Module = None,
+                use_position_embed: bool = True) -> None:
+        self.name = name
+        self.channel_type = channel_type
+        self.input_dim = input_dim
+        self.embedding_size = embedding_size
+        self.no_embedding = no_embedding
+        self.embedding_layer = embedding_layer
+        self.use_position_embed = use_position_embed
+        
+    
+    def make_channel(self)->ChannelConfiguration:
+        raise NotImplementedError
+
+    def from_json(self,json_dict)->ChannelConfiguration:
+        raise NotImplementedError
