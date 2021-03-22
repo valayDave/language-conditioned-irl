@@ -21,6 +21,9 @@ DEFAULT_CHECKPOINT_EXPERIMENT_NAME = 'LAN-21'
 DEFAULT_CHECKPOINT_PATH = 'checkpoints/epoch=12-val_loss=0.98.ckpt'
 DEFAULT_ACTION_EMB_SIZE = 128
 
+def NEPUTUNE_JSON_FIXER(json_str):
+    return json.loads(zz.replace("'",'"').replace('None','null').replace('True','true').replace('False','false'))
+
 
 @dataclass
 class DataAndOptimizerConf:
@@ -428,7 +431,7 @@ class LGRMountainCarInferenceMixin(object):
             del config['data_params']
         # print(config)
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
-            config = json.loads(config['transformer_params'].replace("'",'"'))
+            config = NEPUTUNE_JSON_FIXER(config['transformer_params'])
 
         trans = cls(**config, experiment_name=experiment_name,
                     loaded_checkpoint=checkpoint_path)
@@ -1000,7 +1003,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
                 "Cannot Load Omni-Channel Model As no Channel Configurations Provided ")
 
         config_channnels = []
-        channel_cfgs = json.loads(config['channel_configurations'].replace("'",'"'))
+        channel_cfgs = NEPUTUNE_JSON_FIXER(config['channel_configurations'])
         for c in channel_cfgs:
             if c['name'] not in MOUNTAIN_CAR_CHANNELS:
                 raise Exception(
@@ -1010,7 +1013,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
             config_channnels.append(channel_maker.make_channnel())
 
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
-            config = json.loads(config['transformer_params'].replace("'",'"'))
+            config = NEPUTUNE_JSON_FIXER(config['transformer_params'])
 
         trannsformer_config = OmniTransformerCoreConfig(
             **config, channel_configurations=config_channnels)
