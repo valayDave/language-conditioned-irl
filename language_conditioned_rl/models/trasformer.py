@@ -708,7 +708,7 @@ class OmniChannelTransformer(nn.Module):
                 layer_norm_epsilon=config.layer_norm_epsilon,
                 resid_pdrop=config.resid_pdrop,
                 attn_pdrop=config.attn_pdrop,
-                use_pos_embed=ch2.use_position_embed and ch1.use_position_embed
+                use_pos_embed=c.use_position_embed
             )
             setattr(self,trans_name, vnt)
 
@@ -942,6 +942,268 @@ class OmniChannelTransformer(nn.Module):
         # $ run final_layer against pooled Tenor
         projection_tensor = self.transform_pooled_sequence_features(pooled_seqs)
         return projection_tensor,attn_maps
+
+
+class UniChannelTransformer(nn.Module):
+    """UniChannelTransformer 
+    This Transformer has a seperate Self-attn layer for each sequence with/withou Mask. 
+    This can used to see comparison with Omni-Channel-Transformer
+    """
+    join_str = "__"
+
+    modalities = []
+
+    cross_modal_transformer_names=[]
+
+    embeddings = {}  # Holds all Embedding layers In this transformer.
+
+    cross_mod_trans_common_name = '_transformer'
+
+    mod_trans_common_name = '_collate_transformer'
+
+    embedding_layer_common_name = '__embedding'
+
+    interm_convs_layer_common_name = '__1dcov'
+
+    cls_tokens_common_name = '__cls_token'
+
+    def __init__(self, config: OmniTransformerCoreConfig):
+        super().__init__()
+        self.modalities = [c.name for c in config.channel_configurations]
+        # $ create embedding layer here
+        self.create_embeddings(config.channel_configurations)
+        # $ Create 1 D Conv Here.
+        self.create_interim_convs(config)
+        # $ create class Tokens here.
+        self.create_class_tokens(config)
+        # $ Pos embedding come via sinusiods and they will inform the configuration
+        # $ of the cross modal transformer
+        # $ Create Cross channel transformers here.
+        self.create_uni_modal_transformer(config)
+
+        self.to_cls = nn.Identity()
+        self.pooling_strategy = config.pooling_strategy
+
+        self.config = config
+
+        final_dims = config.transformer_embedding_size *  len(self.modalities)
+
+        self.final_layer = nn.Sequential(
+            nn.Linear(final_dims,final_dims),
+            nn.ReLU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(final_dims, final_dims)
+        )
+        self.final_layer_dims = final_dims
+
+    # NAMING FNS COME HERE>
+    def get_vanilla_trasformer_layer_name(self, mod: str):
+        return mod + self.mod_trans_common_name
+
+    def get_cross_mod_layer_name(self, m1: str, m2: str):
+        return m1+self.join_str+m2+self.cross_mod_trans_common_name
+
+    def get_conv_layer_name(self, mod: str):
+        return mod + self.interm_convs_layer_common_name
+
+    def get_cls_token_name(self, mod: str):
+        return mod + self.cls_tokens_common_name
+
+    def get_embedding_layer_name(self, mod: str):
+        return mod+self.embedding_layer_common_name
+
+    def create_class_tokens(self, config: OmniTransformerCoreConfig):
+        for c in config.channel_configurations:
+            cls_token = nn.Parameter(torch.randn(
+                1, 1, config.transformer_embedding_size))
+            layer_name = self.get_cls_token_name(c.name)
+            setattr(self, layer_name, cls_token)
+
+    def create_uni_modal_transformer(self, config: OmniTransformerCoreConfig):
+
+        for c in config.channel_configurations:
+            trans_name = self.get_vanilla_trasformer_layer_name(c.name)
+            vnt = VanillaTransformer(
+                num_layers=config.num_layers,
+                num_attention_heads=config.num_heads,
+                embedding_size=(len(config.channel_configurations)-1)*config.transformer_embedding_size,
+                scale=config.scale,
+                embed_dropout=config.embd_pdrop,
+                layer_norm_epsilon=config.layer_norm_epsilon,
+                resid_pdrop=config.resid_pdrop,
+                attn_pdrop=config.attn_pdrop,
+                use_pos_embed=c.use_position_embed
+            )
+            setattr(self,trans_name, vnt)
+
+    def create_interim_convs(self, config: OmniTransformerCoreConfig):
+        #  if there is no Embedding in this channel
+        #  Use input dims to figure 1dconv for the input sequence.
+        #  else use the embedding size of channel and translate it to transformer's embedding size.
+        for c in config.channel_configurations:
+            if c.no_embedding:
+                conv_layer = nn.Conv1d(c.input_dim,
+                                       config.transformer_embedding_size,
+                                       kernel_size=1,
+                                       padding=0, bias=False)
+            else:
+                conv_layer = nn.Conv1d(c.embedding_size,
+                                       config.transformer_embedding_size,
+                                       kernel_size=1,
+                                       padding=0, bias=False)
+
+            layer_name = c.name+self.interm_convs_layer_common_name
+
+            setattr(self, layer_name, conv_layer)
+            # self.interm_convs.append(c.name)
+
+    def create_embeddings(self, channel_configurations: List[ChannelConfiguration]):
+        for c in channel_configurations:
+            present = False
+            if not c.no_embedding:
+                present = True
+                emb_layer_name = self.get_embedding_layer_name(c.name)
+                setattr(self, emb_layer_name, c.embedding_layer)
+            self.embeddings[c.name] = present
+
+    def get_channel_embeddings(self, input_channels: List[ChannelData]) -> List[ChannelData]:
+        return_channel_data = []
+        for c in input_channels:
+            if self.embeddings[c.name] == True:
+                emb_layer_name = self.get_embedding_layer_name(c.name)
+                emblayer = getattr(self, emb_layer_name)
+                return_channel_data.append(
+                    ChannelData(
+                        mask=c.mask,
+                        sequence=emblayer(c.sequence),
+                        name=c.name
+                    )
+                )
+            else:
+                return_channel_data.append(
+                    ChannelData(
+                        mask=c.mask,
+                        sequence=c.sequence,
+                        name=c.name
+                    )
+                )
+        return return_channel_data
+
+    def perform_dim_reduction_conv(self,input_channels: List[ChannelData]) -> List[ChannelData]:
+        """perform_dim_reduction_conv 
+        Perform 1d convolution on the input channels to 
+        make dimensions even out for all sequences before we feed it to the transformer.
+        """
+        return_channel_data = []
+        for c in input_channels:
+            cnv_layer_name = self.get_conv_layer_name(c.name)
+            cnv_layer = getattr(self,cnv_layer_name)
+            input_tensor = c.sequence.transpose(1, 2)
+            cnv_tensor = cnv_layer(input_tensor)
+            return_channel_data.append(
+                ChannelData(
+                    mask=c.mask,
+                    sequence=cnv_tensor.permute(0, 2, 1),
+                    name=c.name
+                )
+            )
+        
+        return return_channel_data
+
+    def add_cls_tokens(self, input_channels: List[ChannelData]) -> List[ChannelData]:
+        b, n, _ = input_channels[0].sequence.size()
+        channs =[]
+        for c in input_channels:
+            cls_name = self.get_cls_token_name(c.name)
+            cls_token = getattr(self,cls_name)
+            prepend_cls_token = einops.repeat(cls_token,'() n d -> b n d',b=b)
+            channs.append(
+                ChannelData(
+                    name=c.name,
+                    sequence = torch.cat((c.sequence,prepend_cls_token),dim=1),
+                    mask= None if c.mask is None else torch.cat((torch.ones(b).unsqueeze(1).to(c.sequence.device), c.mask), dim=1)
+                )
+            )
+            
+        return channs
+
+
+    def get_all_modal_features(self, input_channels: List[ChannelData])-> List[ChannelData]:
+        transformed_channel_data = []
+        for rtx in input_channels:
+            current_channel_features = self.extract_transformer_features(rtx)
+            transformed_channel_data.append(
+                ChannelData(
+                    mask = rtx.mask,
+                    name = rtx.name,
+                    sequence = current_channel_features
+                )
+            )
+            # current_channel_object.sequence = current_channel_features
+        return transformed_channel_data
+
+
+    def extract_transformer_features(self,index_modality:ChannelData):
+        """extract_transformer_features [summary]
+        """
+        vanilla_transformer_name = self.get_vanilla_trasformer_layer_name(index_modality.name)
+        vanilla_transformer = getattr(self, vanilla_transformer_name)
+        final_transformer_op = vanilla_transformer(index_modality.sequence,mask=index_modality.mask)
+        return final_transformer_op
+
+        
+    def pool_sequences(self,input_channels: List[ChannelData]):
+        """pool_sequences 
+        Pools either the cls token uses mean pooling strategy.
+        We create a map first so that cat operation happens to Tensors in SAME ORDER
+        This was done because if order changed then as a consequece CAT result will change
+        This was a bug earlier and this is the main fix. 
+        """
+        pooled_features = []
+        seq_map = {}
+        for c in input_channels:
+            seq_map[c.name] = c
+        
+        for m in self.modalities:
+            pooled_features.append(ChannelData(
+                mask = seq_map[m].mask,
+                name = m,
+                sequence = self.to_cls(seq_map[m].sequence[:, 0]) if self.pooling_strategy == 'cls' else seq_map[m].sequence.mean(dim=1)
+            ))
+        return pooled_features
+    
+    def transform_pooled_sequence_features(self,input_channels:List[ChannelData]):
+        """transform_pooled_sequence_features 
+        Run final feedforward and resudial on the concatenated cross channel predictions. 
+        """
+        concat_tensor = torch.cat(tuple(c.sequence for c in input_channels),dim=1)
+        concat_tensor_proj = self.final_layer(concat_tensor)
+        concat_tensor_proj += concat_tensor
+        return concat_tensor_proj
+
+
+    def forward(self, input_channels: List[ChannelData], return_attentions=False):
+        """forward [summary]
+        Use input_channels objects and 
+        todo : add support for return_attentions later. 
+        :param input_channels: [description]
+        :type input_channels: List[ChannelInput]
+        """
+        # $ Create Embeddings For Each Channel
+        embedding_modded_data = self.get_channel_embeddings(input_channels)
+        
+        # $ run 1d conv layers dim reduction to bring dimensions of all seqs to be the same. 
+        convd_channels = self.perform_dim_reduction_conv(embedding_modded_data)
+        
+        # $ Add class tokens to Seqs and Masks
+        cls_token_added_output = self.add_cls_tokens(convd_channels)
+        # $ run cross channel jazz
+        transformered_features = self.get_all_modal_features(cls_token_added_output)
+        # $ use pooling strateggy.
+        pooled_seqs = self.pool_sequences(transformered_features)
+        # $ run final_layer against pooled Tenor
+        projection_tensor = self.transform_pooled_sequence_features(pooled_seqs)
+        return projection_tensor,[]
 
 
 class ChannelMaker(metaclass=abc.ABCMeta):
