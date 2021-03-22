@@ -1022,7 +1022,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
         return trans, config
 
 
-class LGROmniChannelPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, LGROmniChannelRewardOnlyHeadLearner):
+class LGROmniChannelPureContrastiveRewardLearner(LGROmniChannelInferenceMixinMountainCar, LGROmniChannelRewardOnlyHeadLearner):
     def __init__(self,
                  *args,
                  max_traj_length=200,
