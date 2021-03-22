@@ -585,12 +585,13 @@ class ChannelData:
 class OmniChannelTransformer(nn.Module):
     """OmniChannelTransformer 
     If Attention is All you need. 
-    Then attention should be applied to data coming from any modality. 
+    Then this transformer aims to apply attention to arbirary Modalities 
+    To each other. 
     
-    Why Not? 
+    Why ? Well we don't know what should attend to what. So let everything attend to everything
+
     This is a transformer which is elastic for N-Sequence input channels
     and computes attention between each and every one of the sequences.
-
     """
 
     join_str = "__"
@@ -951,13 +952,20 @@ class OmniChannelTransformer(nn.Module):
     def pool_sequences(self,input_channels: List[ChannelData]):
         """pool_sequences 
         Pools either the cls token uses mean pooling strategy.
+        We create a map first so that cat operation happens to Tensors in SAME ORDER
+        This was done because if order changed then as a consequece CAT result will change
+        This was a bug earlier and this is the main fix. 
         """
         pooled_features = []
+        seq_map = {}
         for c in input_channels:
+            seq_map[c.name] = c
+        
+        for m in self.modalities:
             pooled_features.append(ChannelData(
-                mask = c.mask,
-                name = c.name,
-                sequence = self.to_cls(c.sequence[:, 0]) if self.pooling_strategy == 'cls' else c.sequence.mean(dim=1)
+                mask = seq_map[m].mask,
+                name = m,
+                sequence = self.to_cls(seq_map[m].sequence[:, 0]) if self.pooling_strategy == 'cls' else seq_map[m].sequence.mean(dim=1)
             ))
         return pooled_features
     
