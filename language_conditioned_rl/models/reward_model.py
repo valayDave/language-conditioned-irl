@@ -1,3 +1,4 @@
+import json
 import torch.nn as nn
 import torch
 import pytorch_lightning as pl
@@ -427,7 +428,7 @@ class LGRMountainCarInferenceMixin(object):
             del config['data_params']
         # print(config)
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
-            config = config['transformer_params']
+            config = json.loads(config['transformer_params'].replace("'",'"'))
 
         trans = cls(**config, experiment_name=experiment_name,
                     loaded_checkpoint=checkpoint_path)
@@ -999,7 +1000,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
                 "Cannot Load Omni-Channel Model As no Channel Configurations Provided ")
 
         config_channnels = []
-        channel_cfgs = json.loads(config['channel_configurations'])
+        channel_cfgs = json.loads(config['channel_configurations'].replace("'",'"'))
         for c in channel_cfgs:
             if c['name'] not in MOUNTAIN_CAR_CHANNELS:
                 raise Exception(
@@ -1009,7 +1010,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
             config_channnels.append(channel_maker.make_channnel())
 
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
-            config = json.loads(config['transformer_params'])
+            config = json.loads(config['transformer_params'].replace("'",'"'))
 
         trannsformer_config = OmniTransformerCoreConfig(
             **config, channel_configurations=config_channnels)
