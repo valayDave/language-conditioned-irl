@@ -959,7 +959,7 @@ class LGROmniChannelPureContrastiveRewardLearner(LGRMountainCarInferenceMixin, L
                  loaded_checkpoint=None,
                  pretrained_model=PRETRAINED_MODEL, **kwargs):
         LGROmniChannelRewardOnlyHeadLearner.__init__(self, *args, **kwargs)
-        LGRMountainCarInferenceMixin.__init__(self,
+        LGROmniChannelInferenceMixinMountainCar.__init__(self,
                                    max_traj_length=max_traj_length,
                                    action_space=action_space,
                                    max_text_len=max_text_len,
