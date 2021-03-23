@@ -698,10 +698,18 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     def forward(self, input_channels: List[ChannelData], return_attentions=False):
         return self.model(input_channels, return_attentions=return_attentions)
 
+    @staticmethod
+    def scale_vals(tensor,min_v,max_v):
+        scale = max_v - min_v
+        tmin = tensor.min()
+        tmax = tensor.max()
+        return (((tensor - tmin)/(tmax-tmin)) * scale) + min_v
+
     def custom_loss_fn(self, pos_exp, neg_exp):
         if self.scale_vals is not None:
-            scale = max(self.scale_vals) -  min(self.scale_vals)
-            return - self.log_sigmoid((pos_exp - neg_exp)*scale + min(self.scale_vals)).mean()
+            scaled_pos = self.scale_vals(pos_exp,min(self.scale_vals),max(self.scale_vals))
+            scaled_neg = self.scale_vals(neg_exp,min(self.scale_vals),max(self.scale_vals))
+            return - self.log_sigmoid((scaled_pos - scaled_neg)).mean()
         else:
             return - self.log_sigmoid(pos_exp - neg_exp).mean()
 
