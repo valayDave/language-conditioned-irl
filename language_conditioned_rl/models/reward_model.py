@@ -699,7 +699,7 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         return self.model(input_channels, return_attentions=return_attentions)
 
     @staticmethod
-    def scale_vals(tensor,min_v,max_v):
+    def scale_tensor(tensor,min_v,max_v):
         scale = max_v - min_v
         tmin = tensor.min()
         tmax = tensor.max()
@@ -707,8 +707,8 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
 
     def custom_loss_fn(self, pos_exp, neg_exp):
         if self.scale_vals is not None:
-            scaled_pos = self.scale_vals(pos_exp,min(self.scale_vals),max(self.scale_vals))
-            scaled_neg = self.scale_vals(neg_exp,min(self.scale_vals),max(self.scale_vals))
+            scaled_pos = self.scale_tensor(pos_exp,min(self.scale_vals),max(self.scale_vals))
+            scaled_neg = self.scale_tensor(neg_exp,min(self.scale_vals),max(self.scale_vals))
             return - self.log_sigmoid((scaled_pos - scaled_neg)).mean()
         else:
             return - self.log_sigmoid(pos_exp - neg_exp).mean()
