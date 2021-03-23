@@ -689,10 +689,6 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
             self.model.final_layer_dims, self.model.config.transformer_embedding_size)
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.data_params = data_params
-        if scale_vals is not None:
-            assert type(scale_vals) == tuple and len(scale_vals)==2
-            print("Using Loss Scaling In this Experiment.")
-        self.scale_vals = scale_vals
 
     # state,action should be full trajectory sequences for state and action for each element in the batch.
     def forward(self, input_channels: List[ChannelData], return_attentions=False):
@@ -706,12 +702,7 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         return (((tensor - tmin)/(tmax-tmin)) * scale) + min_v
 
     def custom_loss_fn(self, pos_exp, neg_exp):
-        if self.scale_vals is not None:
-            scaled_pos = self.scale_tensor(pos_exp,min(self.scale_vals),max(self.scale_vals))
-            scaled_neg = self.scale_tensor(neg_exp,min(self.scale_vals),max(self.scale_vals))
-            return - self.log_sigmoid((scaled_pos - scaled_neg)).mean()
-        else:
-            return - self.log_sigmoid(pos_exp - neg_exp).mean()
+        return - self.log_sigmoid(pos_exp - neg_exp).mean()
 
     def get_backboone_features(self, batch):
         pos_sent, pos_sent_mask, pos_traj, neg_sent, neg_sent_mask, neg_traj, pos_cat, neg_cat = batch
