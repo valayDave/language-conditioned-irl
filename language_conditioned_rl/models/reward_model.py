@@ -673,8 +673,8 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     def __init__(self,
                  config: OmniTransformerCoreConfig,
                  data_params: DataAndOptimizerConf = DataAndOptimizerConf(),
-                 is_cross_channel = True,
-                 scale_vals=None
+                 is_cross_channel:bool= True,
+                 non_regularized:bool=False,
                  ):
         super().__init__()
         if is_cross_channel:
@@ -689,6 +689,9 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
             self.model.final_layer_dims, self.model.config.transformer_embedding_size)
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.data_params = data_params
+        if non_regularized:
+            self.automatic_optimization = False
+        self.non_regularized = non_regularized
 
     # state,action should be full trajectory sequences for state and action for each element in the batch.
     def forward(self, input_channels: List[ChannelData], return_attentions=False):
@@ -782,11 +785,22 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
             reward = self.get_reward_from_features(features)
         return reward
 
+    def non_regularized_loss(self,losses:List[torch.Tensor],optimizer):
+        total_loss = None
+        for loss in losses:
+            if total_loss is None:
+                total_loss = loss.detach()
+            else:
+                total_loss += loss.detach()
+            loss.backward()
+            optimizer.step()
+        return total_loss
+
     def training_step(self, batch, batch_nb):
         intermediate_feature_tuple, category_tuple = self.get_backboone_features(
             batch)
         pp_tensor, np_tensor, nn_tensor, pn_tensor = intermediate_feature_tuple
-        pos_cat, neg_cat = category_tuple
+        pos_cat, neg_cat = category_tuple            
 
         pp_reward = self.get_reward_from_features(pp_tensor)
         pn_reward = self.get_reward_from_features(pn_tensor)
@@ -795,8 +809,12 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
 
         p_loss = self.custom_loss_fn(pp_reward, np_reward)
         n_loss = self.custom_loss_fn(nn_reward, pn_reward)
-
-        loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+        
+        if self.non_regularized:
+            optimizer = self.optimizers()
+            loss_reward_diff = self.non_regularized_loss([p_loss,n_loss],optimizer)
+        else:
+            loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
 
         loss = loss_reward_diff
 
@@ -820,7 +838,12 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         p_loss = self.custom_loss_fn(pp_reward, np_reward)
         n_loss = self.custom_loss_fn(nn_reward, pn_reward)
 
-        loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+        if self.non_regularized:
+            optimizer = self.optimizers()
+            loss_reward_diff = self.non_regularized_loss([p_loss,n_loss],optimizer)
+        else:
+            loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+
 
         loss = loss_reward_diff
 
@@ -844,7 +867,11 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         p_loss = self.custom_loss_fn(pp_reward, np_reward)
         n_loss = self.custom_loss_fn(nn_reward, pn_reward)
 
-        loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+        if self.non_regularized:
+            optimizer = self.optimizers()
+            loss_reward_diff = self.non_regularized_loss([p_loss,n_loss],optimizer)
+        else:
+            loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
 
         loss = loss_reward_diff
 
@@ -1123,7 +1150,7 @@ MOUNTAIN_CAR_CHANNELS = {
 def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRANSFORMER_PARAMS,
                                        ACTION_EMB_SIZE=128,
                                        is_cross_channel=True,
-                                       scale_vals=None,
+                                       non_regularized=False,
                                        data_params=DataAndOptimizerConf()):
     channel_configurations = []
     for channel_maker in MOUNTAIN_CAR_CHANNELS.values():
@@ -1137,4 +1164,7 @@ def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRAN
     transformer_config = OmniTransformerCoreConfig(
         **CORE_TRANSFORMER_PARAMS, channel_configurations=channel_configurations)
 
-    return LGROmniChannelPureContrastiveRewardLearner(transformer_config, data_params=data_params,is_cross_channel=is_cross_channel,scale_vals=scale_vals)
+    return LGROmniChannelPureContrastiveRewardLearner(transformer_config, \
+                                                    data_params=data_params,\
+                                                    non_regularized=non_regularized,\
+                                                    is_cross_channel=is_cross_channel)
