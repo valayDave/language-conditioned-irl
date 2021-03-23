@@ -1124,6 +1124,7 @@ MOUNTAIN_CAR_CHANNELS = {
 def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRANSFORMER_PARAMS,
                                        ACTION_EMB_SIZE=128,
                                        is_cross_channel=True,
+                                       scale_vals=None,
                                        data_params=DataAndOptimizerConf()):
     channel_configurations = []
     for channel_maker in MOUNTAIN_CAR_CHANNELS.values():
@@ -1137,4 +1138,4 @@ def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRAN
     transformer_config = OmniTransformerCoreConfig(
         **CORE_TRANSFORMER_PARAMS, channel_configurations=channel_configurations)
 
-    return LGROmniChannelPureContrastiveRewardLearner(transformer_config, data_params=data_params,is_cross_channel=is_cross_channel)
+    return LGROmniChannelPureContrastiveRewardLearner(transformer_config, data_params=data_params,is_cross_channel=is_cross_channel,scale_vals=scale_vals)
