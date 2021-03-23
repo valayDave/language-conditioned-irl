@@ -673,7 +673,8 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
     def __init__(self,
                  config: OmniTransformerCoreConfig,
                  data_params: DataAndOptimizerConf = DataAndOptimizerConf(),
-                 is_cross_channel = True
+                 is_cross_channel = True,
+                 scale_vals=None
                  ):
         super().__init__()
         if is_cross_channel:
@@ -688,13 +689,21 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
             self.model.final_layer_dims, self.model.config.transformer_embedding_size)
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.data_params = data_params
+        if scale_vals is not None:
+            assert type(scale_vals) == tuple and len(scale_vals)==2
+            print("Using Loss Scaling In this Experiment.")
+        self.scale_vals = scale_vals
 
     # state,action should be full trajectory sequences for state and action for each element in the batch.
     def forward(self, input_channels: List[ChannelData], return_attentions=False):
         return self.model(input_channels, return_attentions=return_attentions)
 
     def custom_loss_fn(self, pos_exp, neg_exp):
-        return - self.log_sigmoid(pos_exp - neg_exp).mean()
+        if self.scale_vals is not None:
+            scale = max(self.scale_vals) -  min(self.scale_vals)
+            return - self.log_sigmoid((pos_exp - neg_exp)*scale + min(self.scale_vals)).mean()
+        else:
+            return - self.log_sigmoid(pos_exp - neg_exp).mean()
 
     def get_backboone_features(self, batch):
         pos_sent, pos_sent_mask, pos_traj, neg_sent, neg_sent_mask, neg_traj, pos_cat, neg_cat = batch
