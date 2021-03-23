@@ -806,14 +806,15 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         pn_reward = self.get_reward_from_features(pn_tensor)
         nn_reward = self.get_reward_from_features(nn_tensor)
         np_reward = self.get_reward_from_features(np_tensor)
-
-        p_loss = self.custom_loss_fn(pp_reward, np_reward)
-        n_loss = self.custom_loss_fn(nn_reward, pn_reward)
         
         if self.non_regularized:
+            p_loss = self.custom_loss_fn(pp_reward, pn_reward)
+            n_loss = self.custom_loss_fn(nn_reward, np_reward)
             optimizer = self.optimizers()
             loss_reward_diff = self.non_regularized_loss([p_loss,n_loss],optimizer)
         else:
+            p_loss = self.custom_loss_fn(pp_reward, np_reward)
+            n_loss = self.custom_loss_fn(nn_reward, pn_reward)
             loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
 
         loss = loss_reward_diff
@@ -839,10 +840,14 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         n_loss = self.custom_loss_fn(nn_reward, pn_reward)
 
         if self.non_regularized:
-            optimizer = self.optimizers()
-            loss_reward_diff = self.non_regularized_loss([p_loss,n_loss],optimizer)
+            p_loss = self.custom_loss_fn(pp_reward, pn_reward)
+            n_loss = self.custom_loss_fn(nn_reward, np_reward)
+            loss_reward_diff = p_loss+n_loss
         else:
+            p_loss = self.custom_loss_fn(pp_reward, np_reward)
+            n_loss = self.custom_loss_fn(nn_reward, pn_reward)
             loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
+
 
 
         loss = loss_reward_diff
@@ -868,9 +873,12 @@ class LGROmniChannelRewardOnlyHeadLearner(pl.LightningModule):
         n_loss = self.custom_loss_fn(nn_reward, pn_reward)
 
         if self.non_regularized:
-            optimizer = self.optimizers()
-            loss_reward_diff = self.non_regularized_loss([p_loss,n_loss],optimizer)
+            p_loss = self.custom_loss_fn(pp_reward, pn_reward)
+            n_loss = self.custom_loss_fn(nn_reward, np_reward)
+            loss_reward_diff = p_loss + n_loss
         else:
+            p_loss = self.custom_loss_fn(pp_reward, np_reward)
+            n_loss = self.custom_loss_fn(nn_reward, pn_reward)
             loss_reward_diff = torch.mean(torch.stack([p_loss, n_loss]))
 
         loss = loss_reward_diff
