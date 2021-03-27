@@ -1147,9 +1147,56 @@ class TextChannel(ChannelMaker):
         return text_channel_conf
 
 
+class MountainCarStateChannelRestricted(ChannelMaker):
+    def __init__(self, **kwags) -> None:
+        super().__init__(**kwags)
+        self.name = 'state'
+
+    def make_channel(self) -> ChannelConfiguration:
+        return ChannelConfiguration(
+            name='state',
+            channel_type='continous',
+            input_dim=2,
+            embedding_size=None,
+            no_embedding=True,
+            use_position_embed=True,
+            route_to_everything=False,
+            restricted_channels=['text']
+        )
+
+
+class MountainCarActionChannelRestricted(ChannelMaker):
+    def __init__(self, **kwags) -> None:
+        super().__init__(**kwags)
+        self.name = 'action'
+
+    def make_channel(self) -> ChannelConfiguration:
+        emb_size = DEFAULT_ACTION_EMB_SIZE if self.embedding_size is None else self.embedding_size
+        return ChannelConfiguration(
+            name='action',
+            channel_type='discrete',
+            input_dim=None,
+            embedding_size=emb_size,
+            no_embedding=False,
+            embedding_layer=ChannelEmbeddingDiscrete(
+                3+1, embedding_size=emb_size, is_learnable=True),
+            use_position_embed=True,
+            route_to_everything=False,
+            restricted_channels=['text']
+        )
+
+
+
+
 MOUNTAIN_CAR_CHANNELS = {
     'state': MountainCarStateChannel,
     'action': MountainCarActionChannel,
+    'text': TextChannel
+}
+
+MOUNTAIN_CAR_CHANNELS_WITH_RESTRICTION = {
+    'state': MountainCarStateChannelRestricted,
+    'action': MountainCarActionChannelRestricted,
     'text': TextChannel
 }
 
@@ -1158,9 +1205,11 @@ def make_montaincar_omni_channel_model(CORE_TRANSFORMER_PARAMS=DEFAULT_OMNI_TRAN
                                        ACTION_EMB_SIZE=128,
                                        is_cross_channel=True,
                                        non_regularized=False,
+                                       with_restrictions=False,
                                        data_params=DataAndOptimizerConf()):
     channel_configurations = []
-    for channel_maker in MOUNTAIN_CAR_CHANNELS.values():
+    selected_channels = MOUNTAIN_CAR_CHANNELS if not with_restrictions else MOUNTAIN_CAR_CHANNELS_WITH_RESTRICTION
+    for channel_maker in selected_channels.values():
         chm = channel_maker()
         if chm.name == 'action':
             chm.embedding_size = ACTION_EMB_SIZE

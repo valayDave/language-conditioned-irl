@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass, field
 import torch.nn as nn
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 import math
 import torch
 import einops
@@ -528,6 +528,15 @@ class ChannelConfiguration:
         will inform weather Position embeddings will be used in 
         any of the transformer layers. 
 
+    route_to_everything: 
+        this is a boolean that will enforce that this channel will
+        route to everyother channel. 
+    
+    restricted_channels:
+        if `route_to_everything` is True then this will specify 
+        the specific channels that the current channel's cross-channel-routing will be restricted for.  
+
+
     """
     name: str = ''
     channel_type: str = 'discrete'
@@ -536,6 +545,8 @@ class ChannelConfiguration:
     no_embedding: bool = False
     embedding_layer: nn.Module = None
     use_position_embed: bool = True
+    route_to_everything:bool=True
+    restricted_channels:List[str] = field(default_factory=lambda:[])
 
     def to_json(self):
         return dict(
@@ -545,7 +556,9 @@ class ChannelConfiguration:
             embedding_size= self.embedding_size,
             no_embedding= self.no_embedding,
             embedding_layer= None,
-            use_position_embed= self.use_position_embed
+            use_position_embed= self.use_position_embed,
+            route_to_everything=self.route_to_everything,
+            restricted_channels=self.restricted_channels,
         )
 
     def __post_init__(self):
@@ -556,7 +569,10 @@ class ChannelConfiguration:
         if self.no_embedding and self.input_dim == None:
             raise Exception(
                 "If No Embedding are given then Dimsion of an individual item in input sequence is required")
-
+        
+        if not self.route_to_everything and len(self.restricted_channels) == 0:
+            raise Exception(
+                "If ChannelConfiguration.route_to_everything=True then atleast one channel is required in ChannelConfiguration.restricted_channels")
 
 @dataclass
 class OmniTransformerCoreConfig:
@@ -579,7 +595,7 @@ class OmniTransformerCoreConfig:
     channel_configurations: List[ChannelConfiguration] = field(
         default_factory=[])
 
-    debug:bool=False
+    debug:bool=False # useless flag for now. 
 
     def to_json(self):
         pass  # todo
@@ -607,12 +623,6 @@ class OmniChannelTransformer(nn.Module):
 
     join_str = "__"
 
-    modalities = []
-
-    cross_modal_transformer_names=[]
-
-    embeddings = {}  # Holds all Embedding layers In this transformer.
-
     cross_mod_trans_common_name = '_transformer'
 
     mod_trans_common_name = '_collate_transformer'
@@ -625,7 +635,12 @@ class OmniChannelTransformer(nn.Module):
 
     def __init__(self, config: OmniTransformerCoreConfig):
         super().__init__()
+        # Init Done for there here otherwise class overide was taking place on reinstantiationn. 
         self.modalities = [c.name for c in config.channel_configurations]
+        self.channel_routes:Dict[str,List] = {} # {channel_name : []}
+        self.modalities = []
+        self.cross_modal_transformer_names=[]
+        self.embeddings = {}  # Holds all Embedding layers In this transformer.
         # $ create embedding layer here
         self.create_embeddings(config.channel_configurations)
         # $ Create 1 D Conv Here.
@@ -635,14 +650,16 @@ class OmniChannelTransformer(nn.Module):
         # $ Pos embedding come via sinusiods and they will inform the configuration
         # $ of the cross modal transformer
         # $ Create Cross channel transformers here.
-        self.create_cross_modal_transformer(config)
+        # $ As routing rules apply the final embedding size of the vanilla transformrs
+        # $ will be different based on configuration so it returned  
+        final_embedding_sizes = self.create_cross_modal_transformer(config)
 
         self.to_cls = nn.Identity()
         self.pooling_strategy = config.pooling_strategy
 
         self.config = config
 
-        final_dims = config.transformer_embedding_size * (len(self.modalities)-1) * len(self.modalities)
+        final_dims = sum(final_embedding_sizes)
 
         self.final_layer = nn.Sequential(
             nn.Linear(final_dims,final_dims),
@@ -675,14 +692,36 @@ class OmniChannelTransformer(nn.Module):
             layer_name = self.get_cls_token_name(c.name)
             setattr(self, layer_name, cls_token)
 
-    def create_cross_modal_transformer(self, config: OmniTransformerCoreConfig):
+    def create_cross_modal_transformer(self, config: OmniTransformerCoreConfig) -> List:
+        '''
+        It will return the size of the embeddings of the vanilla transformer based on 
+        routing rules given in the ChannelConfigurations
+        '''
         confs = config.channel_configurations
+        # all_channel_routes = itertools.combinations([c.name for c in config.channel_configurations],len(config.channel_configurations)-1)
         config_combs = list(itertools.product(confs,confs))
         for ch1, ch2 in config_combs:
             if ch1.name == ch2.name:
                 continue
             trans_name = self.get_cross_mod_layer_name(ch1.name, ch2.name)
-            # This will always add position Embed
+            # This is the Routing restrictions that get applied via the 
+            # ChannelConfiguration. if a channel will not route_to_everything
+            # Then it will route to the channels it is restricted to. 
+            # We create transformers if they  are routing to other things. 
+            channel_match_condition = False
+            if ch1.route_to_everything:
+                channel_match_condition=True
+            elif ch2.name in ch1.restricted_channels:
+                channel_match_condition=True
+            
+            if not channel_match_condition:
+                continue
+
+            if ch1.name not in self.channel_routes:
+                self.channel_routes[ch1.name] = [ch2.name]
+            else:
+                self.channel_routes[ch1.name].append(ch2.name)
+
             cm_transformer = MultiModalTransformer(
                 num_layers=config.num_layers,
                 num_attention_heads=config.num_heads,
@@ -696,13 +735,18 @@ class OmniChannelTransformer(nn.Module):
             )
             setattr(self,trans_name, cm_transformer)
             self.cross_modal_transformer_names.append(trans_name)
-
+        
+        vanilla_embedding_sizes = []
         for c in config.channel_configurations:
+            # Need to set Restricted Channels Somewhere. 
             trans_name = self.get_vanilla_trasformer_layer_name(c.name)
+            # Embedding size set based on thhe number of channels the current channel is cross-attenting to. 
+            # This information is stored in the `channel_routes`
+            embedding_size = len(self.channel_routes[c.name])*config.transformer_embedding_size
             vnt = VanillaTransformer(
                 num_layers=config.num_layers,
                 num_attention_heads=config.num_heads,
-                embedding_size=(len(config.channel_configurations)-1)*config.transformer_embedding_size,
+                embedding_size=embedding_size,
                 scale=config.scale,
                 embed_dropout=config.embd_pdrop,
                 layer_norm_epsilon=config.layer_norm_epsilon,
@@ -711,6 +755,9 @@ class OmniChannelTransformer(nn.Module):
                 use_pos_embed=c.use_position_embed
             )
             setattr(self,trans_name, vnt)
+            vanilla_embedding_sizes.append(embedding_size)
+        
+        return vanilla_embedding_sizes
 
     def create_interim_convs(self, config: OmniTransformerCoreConfig):
         #  if there is no Embedding in this channel
@@ -807,7 +854,7 @@ class OmniChannelTransformer(nn.Module):
     def get_cross_modal_features(self, input_channels: List[ChannelData], return_attentions=False)-> Tuple[List[ChannelData],List[dict]]:
         # For each `input_channel` we need combinations of all other elements 
         # Each elemen 
-        all_channel_names = set([c.name for c in input_channels])
+        # all_channel_names = set([c.name for c in input_channels])
         channel_lookup_dict = {
             c.name:c for c in input_channels
         }
@@ -815,16 +862,17 @@ class OmniChannelTransformer(nn.Module):
         attn_maps = []
         running_tups = []
         # for each channel find the other channels that it can cross-attend to. 
-        # Create a tuple of that. 
-        for channel_tensors_tuple in itertools.combinations(input_channels,len(input_channels)-1):
-            cross_channel_names = set(list(map(lambda x:x.name,channel_tensors_tuple)))
-            current_channel_name = all_channel_names - cross_channel_names
-            current_channel_name = list(current_channel_name)[0]
-            current_channel_object = channel_lookup_dict[current_channel_name]
+        # Create a tuple of that.
+        # The routing Restrictions will come here.  
+        # For each channnel and it restricted routes
+        for channel_names_tuple in  self.channel_routes.items():
+            curr_channel_name,cross_channel_names  = channel_names_tuple
+            cross_channel_obj_tup = tuple(channel_lookup_dict[n] for n in cross_channel_names)
+            channel_obj = channel_lookup_dict[curr_channel_name]
             running_tups.append(
-                (current_channel_object,channel_tensors_tuple)
+                (channel_obj,cross_channel_obj_tup)
             )
-        
+                    
         for rtx in running_tups:
             if return_attentions:
                 # Use the current channel and other channels to find cross channel features. 
@@ -1215,7 +1263,9 @@ class ChannelMaker(metaclass=abc.ABCMeta):
                 embedding_size: int = None,
                 no_embedding: bool = False,
                 embedding_layer: nn.Module = None,
-                use_position_embed: bool = True) -> None:
+                use_position_embed: bool = True,
+                route_to_everything:bool=True,
+                restricted_channels:List[str] = []) -> None:
         self.name = name
         self.channel_type = channel_type
         self.input_dim = input_dim
@@ -1223,6 +1273,8 @@ class ChannelMaker(metaclass=abc.ABCMeta):
         self.no_embedding = no_embedding
         self.embedding_layer = embedding_layer
         self.use_position_embed = use_position_embed
+        self.route_to_everything = route_to_everything
+        self.restricted_channels = restricted_channels
         
     
     def make_channel(self)->ChannelConfiguration:
