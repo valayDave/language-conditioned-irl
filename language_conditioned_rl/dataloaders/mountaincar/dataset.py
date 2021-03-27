@@ -10,7 +10,7 @@ EPISODE_SAMPLES = 90
 SENTENCE_PER_EPISODE = 10
 SENTENCE_SAMPLE_BUFFER_SIZE = 15
 CATEGORY_AUGMENT_SENTENCE_MAP = {
-    1: "The car is swings around at the bottom of the valley.",
+    1: "The car swings around at the bottom of the valley.",
     2: "The car is able swing beyond the bottom of the valley but does not reach the top of the mountain",
     3: "The car is able to reach the top of the mountain",
 }
@@ -29,7 +29,7 @@ def create_contrastive_examples(data_df, num_cats=3, episode_samples=10, sentenc
     part_recs = [p.to_dict(orient='records') for p in part_eps]
 
     # Find Combinations of the databased on the category splits
-    # [([cat1_docs],[e]),([cat2_docs],[cat3_docs]),([cat3_docs],[cat1_docs])]
+    # [([cat1_docs],[cat2_docs]),([cat2_docs],[cat3_docs]),([cat3_docs],[cat1_docs])]
     combs = list(itertools.combinations(part_recs, 2))
 
     # Extract Unique Sentences for each category
@@ -51,8 +51,8 @@ def create_contrastive_examples(data_df, num_cats=3, episode_samples=10, sentenc
         else:  # else fill the buffer with all sentences.
             sentence_sampling_dict[cat] = list(sent_cat_dict[cat].keys())
 
-    print("Sampling from the List of Following Sentences. ")
-    print(sentence_sampling_dict)
+    # print("Sampling from the List of Following Sentences. ")
+    # print(sentence_sampling_dict)
 
     # Make combinations of the samples by category: Like blocks of cat1 and cat2
     for comb_tup in combs:
