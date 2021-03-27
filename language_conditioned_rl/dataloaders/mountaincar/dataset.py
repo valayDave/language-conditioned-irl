@@ -611,6 +611,8 @@ BENCHMARK_GROUNDING_SAVE_PTH = './datasets/mountain_car_benchmark_with_grounding
 SENTENCE_PER_EPISODE=3
 EPISODE_SAMPLES=80
 DEFAULT_SENTENCE_SAMPLE_BUFFER_SIZE=100
+TEST_EPISODE_SAMPLES=10
+TEST_SENTENCE_PER_EPISODE=2
 
 def make_dataset(DATA_PTH=DATA_PTH,\
                 BENCHMARK_SAVE_PTH=BENCHMARK_SAVE_PTH,\
@@ -621,6 +623,8 @@ def make_dataset(DATA_PTH=DATA_PTH,\
                 SENTENCE_PER_EPISODE=SENTENCE_PER_EPISODE,\
                 SENTENCE_SAMPLE_BUFFER_SIZE=DEFAULT_SENTENCE_SAMPLE_BUFFER_SIZE,\
                 PRETRAINED_MODEL=PRETRAINED_MODEL,\
+                TEST_EPISODE_SAMPLES=TEST_EPISODE_SAMPLES,\
+                TEST_SENTENCE_PER_EPISODE=TEST_SENTENCE_PER_EPISODE,\
                 CONTENT_FRAC=0.2):
     import pandas
     from transformers import AutoTokenizer
@@ -662,4 +666,4 @@ def make_dataset(DATA_PTH=DATA_PTH,\
                                                         sentence_sample_buffer_size=SENTENCE_SAMPLE_BUFFER_SIZE,\
                                                         is_benchmark=IS_BENCHMARK)
 
-    return train_dataset,val_dataset,test_dataset
+    return train_dataset,val_dataset,test_dataset,(train_set_df,test_set_df)
