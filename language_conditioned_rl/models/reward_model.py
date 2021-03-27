@@ -1055,8 +1055,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
             if c['name'] not in MOUNTAIN_CAR_CHANNELS:
                 raise Exception(
                     f"Unknown Channel : {c['name']} Choose From : {','.join(list(MOUNTAIN_CAR_CHANNELS.keys()))}")
-            channel_maker = MOUNTAIN_CAR_CHANNELS[c['name']](
-                c)  # instantiate channel maker
+            channel_maker = MOUNTAIN_CAR_CHANNELS[c['name']](**c)  # instantiate channel maker 
             config_channnels.append(channel_maker.make_channel())
 
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
@@ -1069,7 +1068,7 @@ class LGROmniChannelInferenceMixinMountainCar(object):
 
         missing_keys, unexpected_keys = trans.load_state_dict(
             checkpoint['state_dict'])
-        # print(f'missing_keys ,unexpected_keys, {missing_keys ,unexpected_keys}')
+        print(f'Model Loading missing_keys ,unexpected_keys, {missing_keys ,unexpected_keys}')
         return trans, config
 
 
