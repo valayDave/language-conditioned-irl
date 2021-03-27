@@ -638,7 +638,6 @@ class OmniChannelTransformer(nn.Module):
         # Init Done for there here otherwise class overide was taking place on reinstantiationn. 
         self.modalities = [c.name for c in config.channel_configurations]
         self.channel_routes:Dict[str,List] = {} # {channel_name : []}
-        self.modalities = []
         self.cross_modal_transformer_names=[]
         self.embeddings = {}  # Holds all Embedding layers In this transformer.
         # $ create embedding layer here
