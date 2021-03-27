@@ -10,3 +10,4 @@ useless/
 .DS_Store/
 LANRL-*
 *.egg-info/
+playground/

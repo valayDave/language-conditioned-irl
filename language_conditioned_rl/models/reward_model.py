@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 from dataclasses import dataclass
 from typing import List
 from .optimizer import PCGrad
-from .trasformer import \
+from .transformer import \
     ChannelMaker, PRETRAINED_MODEL, \
     CrossModalBertEmbedTranformer,\
     OmniTransformerCoreConfig,\
