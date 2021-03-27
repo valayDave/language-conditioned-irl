@@ -113,7 +113,7 @@ def make_benchmark_dataset(all_data_df,
     train_part_eps = set_sampled_sentences_to_epsiodes(
         train_part_eps, train_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE,with_grounding_examples=WITH_GROUNDING_EXAMPLES)
     test_part_eps = set_sampled_sentences_to_epsiodes(
-        test_part_eps, test_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE,with_grounding_examples=WITH_GROUNDING_EXAMPLES)
+        test_part_eps, test_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE,with_grounding_examples=False)
     
     test_part_eps = [e for z in test_part_eps for e in z]
     train_part_eps = [e for z in train_part_eps for e in z]
