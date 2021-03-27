@@ -62,12 +62,15 @@ def make_cat_sent_dict(part_eps, num_cats):
     return sent_cat_dict
 
 
-def set_sampled_sentences_to_epsiodes(part_wise_json_arr, sent_cat_dict, num_samples):
+def set_sampled_sentences_to_epsiodes(part_wise_json_arr, sent_cat_dict, num_samples,with_grounding_examples=False):
     ret_arr = []
     for peps in part_wise_json_arr:
         cat_arr = []
         for idx, row in enumerate(peps):
-            sents = random.sample(sent_cat_dict[row['category']], num_samples)
+            if not with_grounding_examples:
+                sents = random.sample(sent_cat_dict[row['category']], num_samples)
+            else:
+                sents = random.sample(sent_cat_dict[row['category']], num_samples-1) + [CATEGORY_AUGMENT_SENTENCE_MAP[row['category']]]
             ret_ob = {**row}
             ret_ob['sentences'] = sents
             cat_arr.append(ret_ob)
@@ -81,6 +84,7 @@ def make_benchmark_dataset(all_data_df,
                            BENCHMARK_TEST_EPISODE_SAMPLES=10,  # per category,
                            BENCHMARK_SENTENCE_PER_EPISODE=3,
                            BENCHMARK_SENTENCE_SAMPLE_BUFFER_SIZE=100,
+                           WITH_GROUNDING_EXAMPLES=False,
                            save_dir='./datasets'):
     assert 'category' in all_data_df.columns and 'trajectory_stats' in all_data_df.columns and 'sentences' in all_data_df.columns
     test_set_df = all_data_df.sample(frac=BENCHMARK_MC_CONTENT_FRAC)
@@ -107,9 +111,9 @@ def make_benchmark_dataset(all_data_df,
     test_part_eps = [p.to_dict(orient='records') for p in test_part_eps]
 
     train_part_eps = set_sampled_sentences_to_epsiodes(
-        train_part_eps, train_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE)
+        train_part_eps, train_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE,with_grounding_examples=WITH_GROUNDING_EXAMPLES)
     test_part_eps = set_sampled_sentences_to_epsiodes(
-        test_part_eps, test_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE)
+        test_part_eps, test_sent_dict, BENCHMARK_SENTENCE_PER_EPISODE,with_grounding_examples=WITH_GROUNDING_EXAMPLES)
     
     test_part_eps = [e for z in test_part_eps for e in z]
     train_part_eps = [e for z in train_part_eps for e in z]
@@ -117,6 +121,7 @@ def make_benchmark_dataset(all_data_df,
     safe_mkdir(save_dir)
     train_save_path = os.path.join(save_dir,'train.json')
     test_save_path = os.path.join(save_dir,'test.json')
+    
 
     save_json_to_file(train_part_eps,train_save_path)
     save_json_to_file(test_part_eps,test_save_path)
