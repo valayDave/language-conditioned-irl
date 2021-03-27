@@ -1,5 +1,6 @@
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
+from ...models.transformer import PRETRAINED_MODEL
 import itertools
 import torch
 import random
@@ -359,7 +360,6 @@ class ContrastiveTrainingDataset(Dataset):
             return False
         return True
 
-
 class BertEmbedContrastiveTokenizedDataset(ContrastiveTrainingDataset):
     def __init__(self, *args, with_cats=True, **kwargs):
         super().__init__(*args, **kwargs)
@@ -602,3 +602,64 @@ def contloader_collate_fn_with_mask_and_cats(batch):
         torch.Tensor(pcat),
         torch.Tensor(ncat),
     )
+
+
+
+DATA_PTH = './datasets/all_episode_sentences.json'
+BENCHMARK_SAVE_PTH = './datasets/mountain_car_benchmark'
+BENCHMARK_GROUNDING_SAVE_PTH = './datasets/mountain_car_benchmark_with_grounding_exp'
+SENTENCE_PER_EPISODE=3
+EPISODE_SAMPLES=80
+DEFAULT_SENTENCE_SAMPLE_BUFFER_SIZE=100
+
+def make_dataset(DATA_PTH=DATA_PTH,\
+                BENCHMARK_SAVE_PTH=BENCHMARK_SAVE_PTH,\
+                BENCHMARK_GROUNDING_SAVE_PTH=BENCHMARK_GROUNDING_SAVE_PTH,\
+                IS_BENCHMARK=False,\
+                IS_GROUNDING=False,\
+                EPISODE_SAMPLES=EPISODE_SAMPLES,\
+                SENTENCE_PER_EPISODE=SENTENCE_PER_EPISODE,\
+                SENTENCE_SAMPLE_BUFFER_SIZE=DEFAULT_SENTENCE_SAMPLE_BUFFER_SIZE,\
+                PRETRAINED_MODEL=PRETRAINED_MODEL,\
+                CONTENT_FRAC=0.2):
+    import pandas
+    from transformers import AutoTokenizer
+
+    if not IS_BENCHMARK:
+        all_data_df = pandas.DataFrame(load_json_from_file(DATA_PTH))
+        test_set_df = all_data_df.sample(frac=CONTENT_FRAC)
+        train_set_df =all_data_df[~all_data_df.index.isin(test_set_df.index)]
+    else:
+        if not IS_GROUNDING:
+            print("Loading Non Grounded Benchmark Dataset")
+            train_set_df= pandas.DataFrame(load_json_from_file(os.path.join(BENCHMARK_SAVE_PTH,'train.json')))
+            test_set_df = pandas.DataFrame(load_json_from_file(os.path.join(BENCHMARK_SAVE_PTH,'test.json')))
+        else:
+            print("Loading Non Grounded Benchmark Dataset")
+            train_set_df= pandas.DataFrame(load_json_from_file(os.path.join(BENCHMARK_GROUNDING_SAVE_PTH,'train.json')))
+            test_set_df = pandas.DataFrame(load_json_from_file(os.path.join(BENCHMARK_GROUNDING_SAVE_PTH,'test.json')))
+    
+    tokenizer = AutoTokenizer.from_pretrained(PRETRAINED_MODEL)
+    train_dataset = BertEmbedContrastiveTokenizedDataset(train_set_df,\
+                                                        tokenizer,\
+                                                        with_mask=True,\
+                                                        with_cats=True,\
+                                                        sentence_sample_buffer_size=SENTENCE_SAMPLE_BUFFER_SIZE,\
+                                                        num_episode_samples=EPISODE_SAMPLES,\
+                                                        num_sentences_per_episode=SENTENCE_PER_EPISODE,\
+                                                        is_benchmark=IS_BENCHMARK)
+    train_dataset, val_dataset = torch.utils.data.random_split(train_dataset,
+                                                  [
+                                                   round(0.8*len(train_dataset)),
+                                                   len(train_dataset)-round(0.8*len(train_dataset))
+                                                  ])
+    test_dataset = BertEmbedContrastiveTokenizedDataset(test_set_df,\
+                                                        tokenizer,\
+                                                        with_mask=True,\
+                                                        with_cats=True,\
+                                                        num_episode_samples=TEST_EPISODE_SAMPLES,\
+                                                        num_sentences_per_episode=TEST_SENTENCE_PER_EPISODE,\
+                                                        sentence_sample_buffer_size=SENTENCE_SAMPLE_BUFFER_SIZE,\
+                                                        is_benchmark=IS_BENCHMARK)
+
+    return train_dataset,val_dataset,test_dataset
