@@ -572,7 +572,7 @@ class ChannelConfiguration:
         
         if not self.route_to_everything and len(self.restricted_channels) == 0:
             raise Exception(
-                "If ChannelConfiguration.route_to_everything=True then atleast one channel is required in ChannelConfiguration.restricted_channels")
+                "If ChannelConfiguration.route_to_everything=False then atleast one channel is required in ChannelConfiguration.restricted_channels")
 
 @dataclass
 class OmniTransformerCoreConfig:
