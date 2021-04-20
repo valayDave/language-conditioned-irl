@@ -11,8 +11,7 @@ import pandas
 import base64
 import os
 
-from ..channel import ChannelData,ChannelHolder,ContrastiveGenerator
-
+from ..channel import ChannelData, ChannelHolder, ContrastiveGenerator
 
 
 # Text and Image Configuration.
@@ -64,15 +63,16 @@ USE_CHANNELS = [
     'joint_gripper',
 ]
 
+
 def load_json_from_file(file_path):
-    with open(file_path,'r') as f:
+    with open(file_path, 'r') as f:
         json_file = json.load(f)
     return json_file
 
-def save_json_to_file(json_dict,file_path):
-    with open(file_path,'w') as f:
-        json.dump(json_dict,f)
 
+def save_json_to_file(json_dict, file_path):
+    with open(file_path, 'w') as f:
+        json.dump(json_dict, f)
 
 
 class RoboDataset(Dataset):
