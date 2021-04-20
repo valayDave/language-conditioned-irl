@@ -3,14 +3,8 @@ from torch.utils.data.dataloader import DataLoader
 import pandas
 import matplotlib.pyplot as plt
 import numpy
-from ..dataloaders.mountaincar.dataset import BertEmbedContrastiveTokenizedDatasetWithSentences, contloader_collate_fn_with_mask_and_cats
+from ..dataloaders.mountaincar.dataset import BertEmbedContrastiveTokenizedDatasetWithSentences, contloader_collate_fn_with_mask_and_cats,CATEGORY_AUGMENT_SENTENCE_MAP
 
-
-CATEGORY_AUGMENT_SENTENCE_MAP = {
-    1: "The car is swings around at the bottom of the valley.",
-    2: "The car is able swing beyond the bottom of the valley but does not reach the top of the mountain",
-    3: "The car is able to reach the top of the mountain",
-}
 
 TEST_EPISODE_SAMPLES = 10
 TEST_SENTENCE_PER_EPISODE = 2
