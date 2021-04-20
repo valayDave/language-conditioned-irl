@@ -11,7 +11,9 @@ import torch.nn.functional as F
 from .cross_modal_attention import MultiModalAttentionBlock
 from .attention import Block
 from .embeddings import ActionEmbedding, SinusoidalPositionalEmbedding
+from ..dataloaders.channel import ChannelData
 from einops.layers.torch import Rearrange
+
 
 
 PRETRAINED_MODEL = 'bert-base-uncased'
@@ -600,12 +602,6 @@ class OmniTransformerCoreConfig:
     def to_json(self):
         pass  # todo
 
-
-@dataclass
-class ChannelData:
-    mask: torch.Tensor = None
-    sequence: torch.Tensor = None
-    name: str = None
 
 
 
