@@ -1,5 +1,5 @@
 # Model Docs 
-There are two main models : `UniChannelTransformer` and the `OmniChannelTransformer`. To see the detailed models check [this file](language_conditioned_rl/models/reward_model.py).
+There are two main models : `UniChannelTransformer` and the `OmniChannelTransformer`. To see the detailed models check [this file](../language_conditioned_rl/models/reward_model.py).
 
 The goal of these models is to support arbitrary number of input channels and use a configuration for creating a transformer which can support those channels. To instantiate the models you need `ChannelConfiguration`s and an `OmniTransformerCoreConfig`. This helps create the transformer models. 
 
