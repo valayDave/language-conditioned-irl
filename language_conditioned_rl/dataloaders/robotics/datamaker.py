@@ -147,7 +147,7 @@ class H5DataCreatorMainDataCreator:
             loaded_obj = load_json_from_file(json_pth)
             assert 'samples' in loaded_obj
             decompressd_objects = parallel_map(
-                lambda x: self.decompress_json(loaded_obj[x]), loaded_obj['samples'])
+                lambda x: self.decompress_json(loaded_obj[x],x), loaded_obj['samples'])
             # Make the Chunked Tensors from this
             object_tuple = self.roboutils.make_saveable_chunk(
                 decompressd_objects)
@@ -186,8 +186,9 @@ class H5DataCreatorMainDataCreator:
                 channel_msk_dataset.resize(new_coll_size, axis=0)
                 channel_msk_dataset[-len(id_list):] = mask_dict[channel]
 
-    def decompress_json(self, data):
+    def decompress_json(self, data,key):
         cache_val = json.loads(zlib.decompress(base64.b64decode(data)))
+        cache_val['main_name'] = key
         return cache_val
 
     def close(self):

@@ -253,7 +253,8 @@ class RoboDataUtils:
         required_keys = [
             'state/dict',
             'voice',
-            'image'
+            'image',
+            'main_name'
         ]
         assert len([k for k in required_keys if k in robo_data_dict]
                    ) == len(required_keys)
@@ -280,9 +281,9 @@ class RoboDataUtils:
         id_list = []
         for robo_data_dict in robo_data_dicts:
             # No masks except for text are added att start.
-            id_list.append(robo_data_dict['name'])
             seq_dict, msk_dict = self.make_tensor_saveable_object(
                 robo_data_dict)
+            id_list.append(robo_data_dict['main_name'])
             sequences.append(seq_dict)
             masks.append(msk_dict)
 
@@ -325,7 +326,7 @@ class DemonstrationsDataset(Dataset):
         self._open_dataset(filename)
 
     def _open_dataset(self,filename):
-        self.h5 = h5py.File(filename)
+        self.h5 = h5py.File(filename,'r')
         self.id_list = self.h5.get(GROUPNAMES.id_list)[GROUPNAMES.id_list]
         self.sequences = self.h5.get(GROUPNAMES.sequences)
         self.masks = self.h5.get(GROUPNAMES.masks)
