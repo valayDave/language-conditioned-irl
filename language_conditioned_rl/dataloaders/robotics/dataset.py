@@ -336,10 +336,10 @@ class DemonstrationsDataset(Dataset):
         """
         channel_dict = {}
         for k in self.sequences.keys():
-            mask = None if k not in self.masks else torch.Tensor(self.masks[k][index])
+            mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
             channel_dict[k] = ChannelData(
                 mask=mask,
-                sequence=torch.Tensor(self.sequences[k][index]),
+                sequence=torch.from_numpy(self.sequences[k][index]),
                 name=k
             )
         return channel_dict

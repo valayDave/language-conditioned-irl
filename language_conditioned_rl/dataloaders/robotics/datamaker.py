@@ -168,6 +168,7 @@ class H5DataCreatorMainDataCreator:
         # Add the new Ids of the documents to be appended.
         id_list_dataset = self.id_grp.get(GROUPNAMES.id_list)
         id_list_dataset.resize(len(id_list_dataset) + len(id_list), axis=0)
+        id_list = [n.encode("ascii", "ignore") for n in id_list]
         id_list_dataset[-len(id_list):] = id_list
 
         # make channels for each sequence.
@@ -230,8 +231,8 @@ class H5DataCreatorMainDataCreator:
                 maxshape=mask_sizes[channel],
 
             )
-        self.id_grp.create_dataset(GROUPNAMES.id_list, dtype=h5py.string_dtype(
-        ), chunks=True, data=id_list, maxshape=(None,))
+        id_list = [n.encode("ascii", "ignore") for n in id_list]
+        self.id_grp.create_dataset(GROUPNAMES.id_list, dtype='S10', chunks=True, data=id_list, maxshape=(None,))
         # self.final_id_list.extend(id_list)
         return True
 
