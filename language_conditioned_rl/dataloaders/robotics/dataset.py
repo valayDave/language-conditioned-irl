@@ -20,6 +20,9 @@ IMAGE_SIZE = (256, 256)
 PATCH_SIZE = 32
 PATCH_EMBEDDING_DIMS = 128
 
+# Configuration for Dataset size
+MAX_TRAJ_LEN = 500
+
 
 CONTINOUS_VALUE_DIMS = {
     'joint_gripper_velocity': 1,
