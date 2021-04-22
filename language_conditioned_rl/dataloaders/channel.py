@@ -60,9 +60,6 @@ class ChannelHolder:
     def __iter__(self):
         return iter(self.__dict__)
 
-    def __unicode__(self):
-        return unicode(repr(self.__dict__))
-
     def to_device(self, device):
         for k in self.__dict__:
             self.__dict__[k].sequence = self.__dict__[k].sequence.to(device)
@@ -79,8 +76,8 @@ class ContrastiveGenerator:
     This class helps create contrastive examples for all the channels of
     information we possess. 
     """
-    pos_channel_holder: ChannelHolder = field(default_factory=[])
-    neg_channel_holder: ChannelHolder = field(default_factory=[])
+    pos_channel_holder: ChannelHolder = field(default_factory={})
+    neg_channel_holder: ChannelHolder = field(default_factory={})
 
     def create_contrastive_inputs(self, core_channel):
         if core_channel not in self.pos_channel_holder or core_channel not in self.neg_channel_holder:
