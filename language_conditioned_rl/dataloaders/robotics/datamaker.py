@@ -141,9 +141,9 @@ class H5DataCreatorMainDataCreator:
         self.final_id_list = []
 
     def build(self):
-        logger = create_logger(self.__class__.__name__)
+        self.logger = create_logger(self.__class__.__name__)
         for json_pth in self.sample_pths:
-            logger.info(f"Writing Path {json_pth}")
+            self.logger.info(f"Writing Path {json_pth}")
             loaded_obj = load_json_from_file(json_pth)
             assert 'samples' in loaded_obj
             decompressd_objects = parallel_map(
@@ -233,9 +233,18 @@ class H5DataCreatorMainDataCreator:
 
             )
         id_list = [n.encode("ascii", "ignore") for n in id_list]
-        self.id_grp.create_dataset(GROUPNAMES.id_list, dtype='S10', chunks=True, data=id_list, maxshape=(None,))
+        self.id_grp.create_dataset(GROUPNAMES.id_list, dtype='S20', chunks=True, data=id_list, maxshape=(None,))
         # self.final_id_list.extend(id_list)
         return True
 
+class ContrastiveControlParameters:
+  pass
+
 class HDF5ContrastiveSetCreator:
-    pass
+    def __init__(self,\
+                metafile_path:str,\
+                core_demostrations_hdf5pth:str,\
+                control_params=None) -> None:
+        
+        assert is_present(metafile_path)
+        assert is_present(core_demostrations_hdf5pth)
