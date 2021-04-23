@@ -594,4 +594,4 @@ class HDF5ContrastiveSetCreator:
         self._save_contrastive_samples(save_path,train_df,train_sample_indexes,train=True)
         self._save_contrastive_samples(save_path,test_df,test_sample_indexes,train=False)
         # $ Save the control parameters which created the dataset. 
-        save_json_to_file(os.path.join(save_path,self.CREATION_PARAMS_FILENAME),self.control_params.to_json())
+        save_json_to_file(self.control_params.to_json(),os.path.join(save_path,self.CREATION_PARAMS_FILENAME))
