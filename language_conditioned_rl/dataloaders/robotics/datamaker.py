@@ -477,6 +477,7 @@ class HDF5ContrastiveSetCreator:
     def __init__(self,
                  metafile_path: str,
                  core_demostrations_hdf5pth: str,
+                 chunk_size=512,
                  control_params: ContrastiveControlParameters = DEFAULT_CONTROL_PARAMS) -> None:
 
         assert is_present(metafile_path)
@@ -488,6 +489,7 @@ class HDF5ContrastiveSetCreator:
         self.demo_dataset = DemonstrationsDataset(core_demostrations_hdf5pth)
         self.id_list = self.demo_dataset.id_list
         self.control_params = control_params
+        self.chunk_size=chunk_size
         self.logger = create_logger(self.__class__.__name__)
 
     def _partition_train_test(self):
@@ -561,7 +563,7 @@ class HDF5ContrastiveSetCreator:
 
     def _make_join_data_for_indices(self,sample_indices:List[List[int]]):
         unique_idxes = list(set([x for i in sample_indices for x in i]))
-        chunked_demo_indexes = self.make_chunks_based_indexes(unique_idxes,chunk_size=256)
+        chunked_demo_indexes = self.make_chunks_based_indexes(unique_idxes,chunk_size=self.self.chunk_size)
         # $ Extract the ids,seqs and msk from the main dataset and filter the chunks using the `chunked_demo_indexes` 
         self.logger.info("Retrieving Chunks")
         id_chunks,seq_chunks,msk_chunks = self._retrieve_sequence_and_masks(chunked_demo_indexes)
@@ -634,22 +636,15 @@ class HDF5ContrastiveSetCreator:
 
     def _retrieve_sequence_and_masks(self,chunked_indexes:List[List[int]]):
         id_chunks,msk_chunks,seq_chunks = [],[],[]
-        def make_chunk(idx,chunk):
-            self.logger.info(f"Dealing With Chunk : {idx}")
-            return (self._get_ids(chunk),\
-                    self._get_mask(chunk),\
-                    self._get_sequence(chunk))
+        for idx,chunk in enumerate(chunked_indexes):
+            id_list_chunk = self._get_ids(chunk)
+            mask_chunk_dict = self._get_mask(chunk)
+            sequence_chunk_dict = self._get_sequence(chunk)
+            self.logger.info(f"Completed Extracting Chunk {idx} Of Size {len(id_list_chunk)} ")
 
-        extracted_chunked_data = parallel_map(make_chunk,enumerate(chunked_indexes))
-        self.logger.info(f"Completed Extracting Chunks Of Size ")
-        for chunk_tuple in enumerate(extracted_chunked_data):
-            id_list_chunk,\
-            mask_chunk_dict,\
-            sequence_chunk_dict = chunk_tuple
             id_chunks.append(id_list_chunk)    
             msk_chunks.append(mask_chunk_dict)
             seq_chunks.append(sequence_chunk_dict)
-
         return id_chunks,seq_chunks,msk_chunks
 
 
