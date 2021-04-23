@@ -560,7 +560,7 @@ class HDF5ContrastiveSetCreator:
         return mapped_arr
 
     def _make_join_data_for_indices(self,sample_indices:List[List[int]]):
-        unique_idxes = list(set([i for i in sample_indices for x in i]))
+        unique_idxes = list(set([x for i in sample_indices for x in i]))
         chunked_demo_indexes = self.make_chunks_based_indexes(unique_idxes,chunk_size=256)
         # $ Extract the ids,seqs and msk from the main dataset and filter the chunks using the `chunked_demo_indexes` 
         self.logger.info("Retrieving Chunks")
@@ -681,7 +681,7 @@ class HDF5ContrastiveSetCreator:
                 curr_arr = [poped_idx]
             else:
                 curr_arr.append(poped_idx)
-        return curr_arr
+        return chunked_arr
 
     def _save_contrastive_samples(self,
                                   save_path: str,
