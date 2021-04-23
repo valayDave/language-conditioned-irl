@@ -26,7 +26,9 @@ PATCH_EMBEDDING_DIMS = 128
 MAX_TRAJ_LEN = 500
 
 
-HDF5_DATASET_NAME = 'contrastive_ids'
+CONTRASTIVE_HDF5_DATASET_NAME = 'contrastive_ids'
+CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO = f'{CONTRASTIVE_HDF5_DATASET_NAME}_main_demos'
+CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES = f'{CONTRASTIVE_HDF5_DATASET_NAME}_cache_indices'
 
 def is_present(pth):
     try:
@@ -414,6 +416,7 @@ class DemonstrationsDataset(Dataset):
         return len(self.id_list)
 
 
+
 class RandomPairwiseDataset(Dataset):
     """RandomPairwiseDataset 
     Dummy dataset to test functionality of contrastive colllaation. 
@@ -441,7 +444,7 @@ class RandomPairwiseDataset(Dataset):
 
 
 class ContrastiveSampleGeneratedDataset(Dataset):
-    """RandomPairwiseDataset 
+    """ContrastiveSampleGeneratedDataset 
     Dummy dataset to test functionality of contrastive collation. 
 
     Needs the `ContrastiveCollateFn` as a part of its data loader.
@@ -457,7 +460,7 @@ class ContrastiveSampleGeneratedDataset(Dataset):
     def _load_contrastive_set(self,filename:str):
         assert is_present(filename), f"Contrastive Set {filename} should exist!"
         self.contrastive_file = h5py.File(filename,'r')
-        self.contrastive_dataset = list(self.contrastive_file[HDF5_DATASET_NAME])
+        self.contrastive_dataset = list(self.contrastive_file[CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO])
        
     def __len__(self):
         return len(self.contrastive_dataset)

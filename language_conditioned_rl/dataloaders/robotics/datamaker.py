@@ -39,7 +39,8 @@ from .dataset import MAX_TRAJ_LEN,\
     get_padding,\
     RoboDataUtils,\
     DemonstrationsDataset,\
-    HDF5_DATASET_NAME
+    CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO,\
+    CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES
 import gc
 import logging
 
@@ -47,11 +48,13 @@ import logging
 class HDF5ContrastiveSetCreator:
     pass
 
+
 def safe_mkdir(pth):
     try:
-      os.makedirs(pth)
+        os.makedirs(pth)
     except:
-      pass
+        pass
+
 
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -262,7 +265,8 @@ class SampleContrastingRule(metaclass=abc.ABCMeta):
         self.rule_name = self.__class__.__name__
 
     def __call__(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
-        assert set(HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values()).issubset(set(metadf.columns)), f'{set(metadf.columns)} Not a Part of {set(HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values())}'
+        assert set(HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values()).issubset(set(metadf.columns)
+                                                                                ), f'{set(metadf.columns)} Not a Part of {set(HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values())}'
         return self._execute_rule(metadf, num_samples_per_rule=num_samples_per_rule)
 
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 100) -> List[Tuple[str, str]]:
@@ -357,16 +361,19 @@ class ContrastiveControlParameters:
 
     rules:List[SampleContrastingRule] : Instantiated rules for creating the contrasting dataset. 
 
+    cache_main: boolean to signify if we should cache records from the main dataset. 
 
     """
     num_train_samples: int = 10000
     num_test_samples: int = 10000
-    rules: List[SampleContrastingRule] = field(default_factory=lambda:[])
-    train_rule_size_distribution: List[int] = field(default_factory=lambda:[])
-    test_rule_size_distribution: List[int] = field(default_factory=lambda:[])
+    rules: List[SampleContrastingRule] = field(default_factory=lambda: [])
+    train_rule_size_distribution: List[int] = field(default_factory=lambda: [])
+    test_rule_size_distribution: List[int] = field(default_factory=lambda: [])
 
     total_train_demos: int = 12000
     total_test_demos: int = 4000
+
+    cache_main:bool = True
 
     def __post_init__(self):
 
@@ -461,11 +468,11 @@ class HDF5ContrastiveSetCreator:
     CONTRASITIVE_META_FILENAME = 'contrastiveset.csv'
     CREATION_PARAMS_FILENAME = 'creation_params.json'
 
-    TRAIN_PREFIX ='train_'
-    TEST_PREFIX ='test_'
+    TRAIN_PREFIX = 'train_'
+    TEST_PREFIX = 'test_'
 
-    HDF5_DATASET_NAME = HDF5_DATASET_NAME
-
+    HDF5_DATASET_NAME_MAIN_DEMO = CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO
+    HDF5_DATASET_NAME_CACHE_IDX = CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES
 
     def __init__(self,
                  metafile_path: str,
@@ -476,20 +483,23 @@ class HDF5ContrastiveSetCreator:
         assert is_present(core_demostrations_hdf5pth)
         metadf = pandas.read_csv(metafile_path)
         assert set(self.INIT_META_COLUMNS).issubset(metadf.columns)
-        self.metadf:pandas.DataFrame = metadf.rename(columns=self.MAPPING_COLUMNS) 
+        self.metadf: pandas.DataFrame = metadf.rename(
+            columns=self.MAPPING_COLUMNS)
         self.demo_dataset = DemonstrationsDataset(core_demostrations_hdf5pth)
         self.id_list = self.demo_dataset.id_list
         self.control_params = control_params
+        self.logger = create_logger(self.__class__.__name__)
 
     def _partition_train_test(self):
-        # $ create train test partition by using completely unseen demonstration in the test set. 
-        train_filter_rows = random.sample(list(self.metadf.index), self.control_params.total_train_demos)
+        # $ create train test partition by using completely unseen demonstration in the test set.
+        train_filter_rows = random.sample(
+            list(self.metadf.index), self.control_params.total_train_demos)
         train_rows = self.metadf.iloc[train_filter_rows]
         left_rows = self.metadf.drop(index=train_filter_rows)
         test_rows = left_rows.sample(self.control_params.total_test_demos)
-        return train_rows,test_rows
+        return train_rows, test_rows
 
-    def _create_distributon(self,dataframe:pandas.DataFrame,train=False):
+    def _create_distributon(self, dataframe: pandas.DataFrame, train=False):
         """create_distributon [summary]
         Create the distribution of contrastive samples index from metadata dataframe based on the rules stored in 
         `self.control_params.rules` and `self.control_params.num_train_samples`
@@ -499,77 +509,201 @@ class HDF5ContrastiveSetCreator:
         num_rules = len(self.control_params.rules)
         # $ If we have `train_rule_size_distribution` or `test_rule_size_distribution` set then use them.
         if train and len(self.control_params.train_rule_size_distribution) > 0:
-          size_dis = self.control_params.train_rule_size_distribution
+            size_dis = self.control_params.train_rule_size_distribution
         elif not train and len(self.control_params.test_rule_size_distribution) > 0:
-          size_dis = self.control_params.test_rule_size_distribution
+            size_dis = self.control_params.test_rule_size_distribution
         else:
-          # $ If we dont have `train_rule_size_distribution` or `test_rule_size_distribution` set then use balanced distribution based on rules.
-          if train:
-            per_rule_size = int(self.control_params.num_train_samples/num_rules)
-          else:
-            per_rule_size = int(self.control_params.num_test_samples/num_rules)
-          size_dis = [per_rule_size for _ in range(num_rules)]
-          
+            # $ If we dont have `train_rule_size_distribution` or `test_rule_size_distribution` set then use balanced distribution based on rules.
+            if train:
+                per_rule_size = int(
+                    self.control_params.num_train_samples/num_rules)
+            else:
+                per_rule_size = int(
+                    self.control_params.num_test_samples/num_rules)
+            size_dis = [per_rule_size for _ in range(num_rules)]
+
         all_indices = []
         # $ Use rule to create contrastive indices
-        for size,rule in zip(size_dis,self.control_params.rules):
-          created_indices = rule(dataframe,num_samples_per_rule=size)
-          all_indices.extend(created_indices)
+        for size, rule in zip(size_dis, self.control_params.rules):
+            created_indices = rule(dataframe, num_samples_per_rule=size)
+            all_indices.extend(created_indices)
 
         return all_indices
 
-    def _collate_indices(self,dataframe:pandas.DataFrame,indices:List[Tuple[int,int]]):
+    def _collate_indices(self, dataframe: pandas.DataFrame, indices: List[Tuple[int, int]]):
         """_collate_indices 
         Correlate the indices and store return the list of tuples with identifiers to the objects
         """
         collated_id_data = []
         for idx_tuple in indices:
-          pos_idx,neg_idx = idx_tuple
-          pos_obj,neg_obj = dataframe.iloc[dataframe.index.get_loc(pos_idx)],\
-                                dataframe.iloc[dataframe.index.get_loc(neg_idx)]
-          
-          posid,negid = pos_obj[self.MAIN_IDENTIFIER_NAME],\
-                            neg_obj[self.MAIN_IDENTIFIER_NAME]
-          collated_id_data.append(
-            (posid,negid)
-          )
-        
+            pos_idx, neg_idx = idx_tuple
+            pos_obj, neg_obj = dataframe.iloc[dataframe.index.get_loc(pos_idx)],\
+                dataframe.iloc[dataframe.index.get_loc(neg_idx)]
+
+            posid, negid = pos_obj[self.MAIN_IDENTIFIER_NAME],\
+                neg_obj[self.MAIN_IDENTIFIER_NAME]
+            collated_id_data.append(
+                (posid, negid)
+            )
+
         return collated_id_data
 
-    def _map_to_demo_indexes(self,collated_ids:List[Tuple[str,str]],index_map:Dict[str,int]):
+    def _map_to_demo_indexes(self, collated_ids: List[Tuple[str, str]], index_map: Dict[str, int]):
         """_map_to_demo_indexes 
         collated_ids : List of tuples with pos/neg ids in them 
         index_map : dictionary to map strings in `self.id_list` to index so that it can be used to help collate indexes for indexdata
         """
         mapped_arr = []
         for indexes in collated_ids:
-          pid,nid = indexes
-          mapped_arr.append([index_map[pid],index_map[nid]])
+            pid, nid = indexes
+            mapped_arr.append([index_map[pid], index_map[nid]])
         return mapped_arr
+
+    def _make_join_data_for_indices(self,sample_indices:List[List[int]]):
+        unique_idxes = list(set([i for i in sample_indices for x in i]))
+        chunked_demo_indexes = self.make_chunks_based_indexes(unique_idxes,chunk_size=256)
+        # $ Extract the ids,seqs and msk from the main dataset and filter the chunks using the `chunked_demo_indexes` 
+        self.logger.info("Retrieving Chunks")
+        id_chunks,seq_chunks,msk_chunks = self._retrieve_sequence_and_masks(chunked_demo_indexes)
+        self.logger.info("Retrieved Chunks")
+        concat_seq_dict = {k:[] for k in seq_chunks[0].keys()}
+        concat_msk_dict = {k:[] for k in msk_chunks[0].keys()}
+        for chk in seq_chunks:
+            for k in chk:
+                concat_seq_dict[k].append(chk[k])
+
+        for chk in msk_chunks:
+            for k in chk:
+                concat_msk_dict[k].append(chk[k])
+        # $ Concatenate all the data. 
+        for k in concat_seq_dict:
+            concat_seq_dict[k] = np.concatenate(concat_seq_dict[k])
+        
+        for k in concat_msk_dict:
+            concat_msk_dict[k] = np.concatenate(concat_msk_dict[k])
+        
+        return concat_seq_dict,concat_msk_dict,sorted(unique_idxes)
+
+    def _save_contrastive_set(self, save_path: str, sample_indices: List[List[int]],cache_main=True):
+        with h5py.File(save_path, 'w') as contrastive_ds_file:
+            # $ Store info from main demonstration store
+            contrastive_ds_file.create_dataset(f'{self.HDF5_DATASET_NAME_MAIN_DEMO}',
+                             data=np.array(sample_indices), dtype='i')
+            if not cache_main:
+                return 
+            
+            self.logger.info("Caching Records From Main Dataset")
+            # $ Create a cache of the samples from the demonstration dataset by filtering via chunks
+            concat_seq_dict,\
+            concat_msk_dict,\
+            sorted_demo_idxs = self._make_join_data_for_indices(sample_indices)
+            self.logger.info(f"Data is Joined Saving in {contrastive_ds_file}")
+
+            seq_grp = contrastive_ds_file.create_group(GROUPNAMES.sequences)
+            msk_grp = contrastive_ds_file.create_group(GROUPNAMES.masks)
+            data_types = get_hd5_dtypes()
+        
+            for channel in concat_seq_dict:
+                seq_grp.create_dataset(
+                    channel,
+                    dtype=data_types[channel],
+                    chunks=True,
+                    data=concat_seq_dict[channel],
+                )
+
+            for channel in concat_msk_dict:
+                msk_grp.create_dataset(
+                    channel,
+                    dtype=data_types[channel],
+                    chunks=True,
+                    data=concat_msk_dict[channel],
+                )
+
+            # Remap the indexs from the demonstration to the actual indexes in the cache.
+            demo_to_cache_map = {dem_idx:idx for idx,dem_idx in enumerate(sorted_demo_idxs)}
+            cache_indices = []
+            for idx_pair in sample_indices:
+                p1,p2 = idx_pair
+                cache_indices.append(
+                    [demo_to_cache_map[p1],demo_to_cache_map[p2]]
+                )
+            # $ This creates a new mapping of the contrastive indices based on the cache.
+            contrastive_ds_file.create_dataset(f'{self.HDF5_DATASET_NAME_CACHE_IDX}',
+                             data=np.array(cache_indices), dtype='i')
+            
+
+    def _retrieve_sequence_and_masks(self,chunked_indexes:List[List[int]]):
+        id_chunks,msk_chunks,seq_chunks = [],[],[]
+        for idx,chunk in enumerate(chunked_indexes):
+            id_list_chunk = self._get_ids(chunk)
+            mask_chunk_dict = self._get_mask(chunk)
+            sequence_chunk_dict = self._get_sequence(chunk)
+            self.logger.info(f"Completed Extracting Chunk {idx} Of Size {len(id_list_chunk)} ")
+
+            id_chunks.append(id_list_chunk)    
+            msk_chunks.append(mask_chunk_dict)
+            seq_chunks.append(sequence_chunk_dict)
+        return id_chunks,seq_chunks,msk_chunks
+
+
+    def _get_ids(self,chunk) -> np.ndarray:
+        chunk = self.demo_dataset.id_list[chunk]
+        return chunk
+
+    def _get_sequence(self,chunk) -> Dict[str,np.ndarray]:
+        ret_dict = {}
+        for dataset_name in self.demo_dataset.sequences.keys():
+            chunk = self.demo_dataset.sequences[dataset_name][chunk]
+            ret_dict[dataset_name] = chunk
+        return ret_dict
+
+    def _get_mask(self,chunk) -> Dict[str,np.ndarray]:
+        ret_dict = {}
+        for dataset_name in self.demo_dataset.masks.keys():
+            chunk = self.demo_dataset.masks[dataset_name][chunk]
+            ret_dict[dataset_name] = chunk
+        return ret_dict
     
-    def _save_contrastive_set(self,save_path:str,sample_indices:List):
-        with h5py.File(save_path,'w') as f:
-          f.create_dataset(self.HDF5_DATASET_NAME,data=np.array(sample_indices),dtype='i')
+    @staticmethod
+    def make_chunks_based_indexes(index_list: List[int], chunk_size=256):
+        # This will first make the index chunks with a range of 256 so that we can efficiently extract data from hdf5
+        # Sorting so indexing chunks is easy
+        sorted_idxs = sorted(index_list)
+        curr_chunk_multiple = 1
+        chunked_arr = []
+        curr_arr = []
+        while len(sorted_idxs) > 0:
+            poped_idx = sorted_idxs.pop(0)
+            # Make new chunk if exceed current chunk index else add to current chunk 
+            if poped_idx > chunk_size * curr_chunk_multiple:
+                curr_chunk_multiple += 1
+                chunked_arr.append(curr_arr)
+                curr_arr = [poped_idx]
+            else:
+                curr_arr.append(poped_idx)
+        return curr_arr
 
-
-    def _save_contrastive_samples(self,\
-                                  save_path:str,\
-                                  dataframe:pandas.DataFrame,\
-                                  sample_indices:List,\
+    def _save_contrastive_samples(self,
+                                  save_path: str,
+                                  dataframe: pandas.DataFrame,
+                                  sample_indices: List,
                                   train=False):
-        meta_path = None 
+        meta_path = None
         datasetpth = None
         if train:
-          datasetpth = self.TRAIN_PREFIX + self.CONTRASITIVE_SET_FILENAME
-          meta_path = self.TRAIN_PREFIX + self.CONTRASITIVE_META_FILENAME
+            datasetpth = self.TRAIN_PREFIX + self.CONTRASITIVE_SET_FILENAME
+            meta_path = self.TRAIN_PREFIX + self.CONTRASITIVE_META_FILENAME
         else:
-          datasetpth = self.TEST_PREFIX + self.CONTRASITIVE_SET_FILENAME
-          meta_path = self.TEST_PREFIX + self.CONTRASITIVE_META_FILENAME
-        
-        dataframe.to_csv(os.path.join(save_path,meta_path))
-        self._save_contrastive_set(os.path.join(save_path,datasetpth),sample_indices)
+            datasetpth = self.TEST_PREFIX + self.CONTRASITIVE_SET_FILENAME
+            meta_path = self.TEST_PREFIX + self.CONTRASITIVE_META_FILENAME
 
-    def make_dataset(self,save_path:str):
+        dataframe.to_csv(os.path.join(save_path, meta_path))
+        dataset_savepth = os.path.join(save_path, datasetpth)
+        self._save_contrastive_set(dataset_savepth,\
+                                    sample_indices,\
+                                    cache_main=self.control_params.cache_main)
+
+    def make_dataset(self, save_path: str):
         """make_dataset [summary]
         :param save_path: Path to folder. Has to not exist so dataset is created and populated within that.
         :type save_path: str
@@ -578,20 +712,26 @@ class HDF5ContrastiveSetCreator:
         # $ First find partitions for the train and the test set samples from the Meta-dataframe.
         train_df, test_df = self._partition_train_test()
         # $ Apply rules to create the contrastive indices of individual train/test meta dataframes
-        train_indices = self._create_distributon(train_df,train=True)
-        test_indices = self._create_distributon(test_df,train=False)
+        train_indices = self._create_distributon(train_df, train=True)
+        test_indices = self._create_distributon(test_df, train=False)
         # $ Using indices created by the rules, Find the Ids' they Belong to in their dataframes .
-        train_collated_ids = self._collate_indices(train_df,train_indices)
-        test_collated_ids = self._collate_indices(test_df,test_indices)
+        train_collated_ids = self._collate_indices(train_df, train_indices)
+        test_collated_ids = self._collate_indices(test_df, test_indices)
         # $ Find the mapping index of the ids in the `self.id_list`. It will provide indexes in the main demonstration dataset
         # $ Make a dictionary which hold the index positions to use it .
-        index_map = { k.decode('utf-8'):idx for idx,k in enumerate(self.demo_dataset.id_list) }
-        train_sample_indexes = self._map_to_demo_indexes(train_collated_ids,index_map)
-        test_sample_indexes = self._map_to_demo_indexes(test_collated_ids,index_map)
-        # $ Save the contrastive indices of the into last hdf5 file and 
+        index_map = {k.decode('utf-8'): idx for idx,
+                     k in enumerate(self.demo_dataset.id_list)}
+        train_sample_indexes = self._map_to_demo_indexes(
+            train_collated_ids, index_map)
+        test_sample_indexes = self._map_to_demo_indexes(
+            test_collated_ids, index_map)
+        # $ Save the contrastive indices of the into last hdf5 file and
         # $ also save the Metadata about the extracted Meta data of the test/trainset.
         safe_mkdir(save_path)
-        self._save_contrastive_samples(save_path,train_df,train_sample_indexes,train=True)
-        self._save_contrastive_samples(save_path,test_df,test_sample_indexes,train=False)
-        # $ Save the control parameters which created the dataset. 
-        save_json_to_file(self.control_params.to_json(),os.path.join(save_path,self.CREATION_PARAMS_FILENAME))
+        self._save_contrastive_samples(
+            save_path, train_df, train_sample_indexes, train=True)
+        self._save_contrastive_samples(
+            save_path, test_df, test_sample_indexes, train=False)
+        # $ Save the control parameters which created the dataset.
+        save_json_to_file(self.control_params.to_json(), os.path.join(
+            save_path, self.CREATION_PARAMS_FILENAME))
