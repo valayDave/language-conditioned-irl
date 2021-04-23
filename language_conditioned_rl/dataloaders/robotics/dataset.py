@@ -452,8 +452,9 @@ class ContrastiveSampleGeneratedDataset(Dataset):
                 constrastive_set_hdf5_file:str,\
                 main_meta_path=None) -> None:
         super().__init__()
-        self.demods = DemonstrationsDataset(filename)
-        self._open_dataset(constrastive_set_hdf5_file)
+        # self.demods = DemonstrationsDataset(filename)
+        # self._open_dataset()
+        self.constrastive_set_hdf5_file=constrastive_set_hdf5_file
 
     def _open_dataset(self,filename):
         assert is_present(filename), f"Contrastive Set {filename} should exist!"
@@ -466,7 +467,6 @@ class ContrastiveSampleGeneratedDataset(Dataset):
     def __len__(self):
         return len(self.contrastive_indices)
 
-    @lru_cache(maxsize=4000)    
     def get_channel_data(self,index):
         """__getitem__ 
         returns dictionary of ChannelData
@@ -482,6 +482,8 @@ class ContrastiveSampleGeneratedDataset(Dataset):
         return channel_dict
 
     def __getitem__(self, idx):
+        if self.h5 is None:
+            self._open_dataset(self.constrastive_set_hdf5_file)
         idx_i,idx_j = self.contrastive_indices[idx]
         samp_i = self.get_channel_data(idx_i) # Dictionary
         samp_j = self.get_channel_data(idx_j) # Dictionary
