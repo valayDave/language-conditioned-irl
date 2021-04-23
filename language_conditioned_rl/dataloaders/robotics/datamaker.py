@@ -634,34 +634,41 @@ class HDF5ContrastiveSetCreator:
 
     def _retrieve_sequence_and_masks(self,chunked_indexes:List[List[int]]):
         id_chunks,msk_chunks,seq_chunks = [],[],[]
-        for idx,chunk in enumerate(chunked_indexes):
-            id_list_chunk = self._get_ids(chunk)
-            mask_chunk_dict = self._get_mask(chunk)
-            sequence_chunk_dict = self._get_sequence(chunk)
-            self.logger.info(f"Completed Extracting Chunk {idx} Of Size {len(id_list_chunk)} ")
+        def make_chunk(idx,chunk):
+            self.logger.info(f"Dealing With Chunk : {idx}")
+            return (self._get_ids(chunk),\
+                    self._get_mask(chunk),\
+                    self._get_sequence(chunk))
 
+        extracted_chunked_data = parallel_map(make_chunk,enumerate(chunked_indexes))
+        self.logger.info(f"Completed Extracting Chunks Of Size ")
+        for chunk_tuple in enumerate(extracted_chunked_data):
+            id_list_chunk,\
+            mask_chunk_dict,\
+            sequence_chunk_dict = chunk_tuple
             id_chunks.append(id_list_chunk)    
             msk_chunks.append(mask_chunk_dict)
             seq_chunks.append(sequence_chunk_dict)
+
         return id_chunks,seq_chunks,msk_chunks
 
 
     def _get_ids(self,chunk) -> np.ndarray:
-        chunk = self.demo_dataset.id_list[chunk]
-        return chunk
+        return_chunk = self.demo_dataset.id_list[chunk]
+        return return_chunk
 
     def _get_sequence(self,chunk) -> Dict[str,np.ndarray]:
         ret_dict = {}
         for dataset_name in self.demo_dataset.sequences.keys():
-            chunk = self.demo_dataset.sequences[dataset_name][chunk]
-            ret_dict[dataset_name] = chunk
+            return_chunk = self.demo_dataset.sequences[dataset_name][chunk]
+            ret_dict[dataset_name] = return_chunk
         return ret_dict
 
     def _get_mask(self,chunk) -> Dict[str,np.ndarray]:
         ret_dict = {}
         for dataset_name in self.demo_dataset.masks.keys():
-            chunk = self.demo_dataset.masks[dataset_name][chunk]
-            ret_dict[dataset_name] = chunk
+            return_chunk = self.demo_dataset.masks[dataset_name][chunk]
+            ret_dict[dataset_name] = return_chunk
         return ret_dict
     
     @staticmethod
