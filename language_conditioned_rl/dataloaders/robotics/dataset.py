@@ -26,6 +26,7 @@ PATCH_EMBEDDING_DIMS = 128
 MAX_TRAJ_LEN = 500
 
 
+HDF5_DATASET_NAME = 'contrastive_ids'
 
 def is_present(pth):
     try:
@@ -316,78 +317,6 @@ class RoboDataUtils:
         return input_sequence_dict, mask_dict, id_list
 
 
-class DemonstrationsDataset(Dataset):
-    """DemonstrationsDataset 
-    Dataset wrapper over the HDF5 dataset which is stored. 
-    """
-    def __init__(self, filename: str,) -> None:
-        super().__init__()
-        assert is_present(filename)
-        self._open_dataset(filename)
-
-    def _open_dataset(self,filename):
-        self.h5 = h5py.File(filename,'r')
-        self.id_list = self.h5.get(GROUPNAMES.id_list)[GROUPNAMES.id_list]
-        self.sequences = self.h5.get(GROUPNAMES.sequences)
-        self.masks = self.h5.get(GROUPNAMES.masks)
-
-    def __getitem__(self, index):
-        """__getitem__ 
-        returns dictionary of ChannelData
-        """
-        channel_dict = {}
-        for k in self.sequences.keys():
-            mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
-            channel_dict[k] = ChannelData(
-                mask=mask,
-                sequence=torch.from_numpy(self.sequences[k][index]),
-                name=k
-            )
-        return channel_dict
-    
-    def __len__(self):
-        return len(self.id_list)
-    
-    @property
-    def is_closed(self):
-        if self.h5 is None:
-            return True
-        else: 
-            return False
-
-
-    def close(self):
-        self.h5.close()
-        self.id_list = None
-        self.sequences = None
-        self.masks = None
-        print("Dataset Closed")
-
-
-    def __len__(self):
-        return len(self.id_list)
-
-
-class RandomPairwiseDataset(Dataset):
-    """RandomPairwiseDataset 
-    Dummy dataset to test functionality of contrastive colllaation. 
-    """
-    def __init__(self,filename:str,sample=20) -> None:
-        super().__init__()
-        self.demods = DemonstrationsDataset(filename)
-        all_idxs = [i for i in range(len(self.demods))]
-        if sample is not None:
-            all_idxs = random.sample(all_idxs,sample)
-        self.idxs = list(itertools.combinations(all_idxs,2))
-    
-    def __len__(self):
-        return len(self.idxs)
-
-    def __getitem__(self, idx):
-        idx_i,idx_j = self.idxs[idx]
-        samp_i = self.demods[idx_i] 
-        samp_j = self.demods[idx_j] 
-        return samp_i,samp_j
 
 class ContrastiveCollateFn:
     """ 
@@ -433,3 +362,112 @@ class ContrastiveCollateFn:
                 if channel_obj.mask is not None and core_channels[channel_obj.name].mask is not None:
                     core_channels[channel_obj.name].mask.append(channel_obj.mask)
         return core_channels  # { k : list(tensor(1xsxd))}
+
+class DemonstrationsDataset(Dataset):
+    """DemonstrationsDataset 
+    Dataset wrapper over the HDF5 dataset which is stored. 
+    """
+    def __init__(self, filename: str,) -> None:
+        super().__init__()
+        assert is_present(filename)
+        self._open_dataset(filename)
+
+    def _open_dataset(self,filename):
+        self.h5 = h5py.File(filename,'r')
+        self.id_list = self.h5.get(GROUPNAMES.id_list)[GROUPNAMES.id_list]
+        self.sequences = self.h5.get(GROUPNAMES.sequences)
+        self.masks = self.h5.get(GROUPNAMES.masks)
+
+    def __getitem__(self, index) -> Dict[str,ChannelData]:
+        """__getitem__ 
+        returns dictionary of ChannelData
+        """
+        channel_dict = {}
+        for k in self.sequences.keys():
+            mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
+            channel_dict[k] = ChannelData(
+                mask=mask,
+                sequence=torch.from_numpy(self.sequences[k][index]),
+                name=k
+            )
+        return channel_dict
+    
+    def __len__(self):
+        return len(self.id_list)
+    
+    @property
+    def is_closed(self):
+        if self.h5 is None:
+            return True
+        else: 
+            return False
+
+
+    def close(self):
+        self.h5.close()
+        self.id_list = None
+        self.sequences = None
+        self.masks = None
+        print("Dataset Closed")
+
+    def __len__(self):
+        return len(self.id_list)
+
+
+class RandomPairwiseDataset(Dataset):
+    """RandomPairwiseDataset 
+    Dummy dataset to test functionality of contrastive colllaation. 
+    """
+    def __init__(self,filename:str,sample=20) -> None:
+        super().__init__()
+        self.demods = DemonstrationsDataset(filename)
+        all_idxs = [i for i in range(len(self.demods))]
+        if sample is not None:
+            all_idxs = random.sample(all_idxs,sample)
+        self.idxs = list(itertools.combinations(all_idxs,2))
+    
+    def __len__(self):
+        return len(self.idxs)
+
+    def __getitem__(self, idx):
+        idx_i,idx_j = self.idxs[idx]
+        samp_i = self.demods[idx_i] 
+        samp_j = self.demods[idx_j] 
+        return samp_i,samp_j
+
+    @staticmethod
+    def collate_fn():
+        return ContrastiveCollateFn()
+
+
+class ContrastiveSampleGeneratedDataset(Dataset):
+    """RandomPairwiseDataset 
+    Dummy dataset to test functionality of contrastive collation. 
+
+    Needs the `ContrastiveCollateFn` as a part of its data loader.
+    """
+    def __init__(self,\
+                filename:str,\
+                constrastive_set_hdf5_file:str,\
+                main_meta_path=None) -> None:
+        super().__init__()
+        self.demods = DemonstrationsDataset(filename)
+        self._load_contrastive_set(constrastive_set_hdf5_file)
+    
+    def _load_contrastive_set(self,filename:str):
+        assert is_present(filename), f"Contrastive Set {filename} should exist!"
+        self.contrastive_file = h5py.File(filename,'r')
+        self.contrastive_dataset = self.contrastive_file[HDF5_DATASET_NAME]
+       
+    def __len__(self):
+        return len(self.contrastive_dataset)
+
+    def __getitem__(self, idx):
+        idx_i,idx_j = self.contrastive_dataset[idx]
+        samp_i = self.demods[idx_i] # Dictionary
+        samp_j = self.demods[idx_j] # Dictionary
+        return samp_i,samp_j
+    
+    @staticmethod
+    def collate_fn():
+        return ContrastiveCollateFn()

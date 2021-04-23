@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple
 import h5py
 from torchvision import transforms
 from dataclasses import dataclass, field
+import datetime
 import abc
 import itertools
 import torch
@@ -31,12 +32,14 @@ from .dataset import MAX_TRAJ_LEN,\
     MAX_TEXT_LENGTH,\
     DISCRETE_CHANNELS,\
     load_json_from_file,\
+    save_json_to_file,\
     MAX_TRAJ_LEN,\
     is_present,\
     GROUPNAMES,\
     get_padding,\
     RoboDataUtils,\
-    DemonstrationsDataset
+    DemonstrationsDataset,\
+    HDF5_DATASET_NAME
 import gc
 import logging
 
@@ -372,6 +375,12 @@ class ContrastiveControlParameters:
 
         if len(self.test_rule_size_distribution) > 0:
             assert len(self.test_rule_size_distribution) == len(self.rules)
+        self.created_on = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    def to_json(self):
+        data_dict = {**self.__dict__}
+        data_dict['rules'] = [r.rule_name for r in data_dict['rules']]
+        return data_dict
 
 
 DEFAULT_CONTROL_PARAMS = ContrastiveControlParameters(
@@ -388,13 +397,23 @@ DEFAULT_CONTROL_PARAMS = ContrastiveControlParameters(
 class HDF5ContrastiveSetCreator:
     """ 
     HDF5ContrastiveSetCreator : Creates the dataset holding the contrasting indices. \n
-    CORE Rules to Contrast two examples i,j :
+    CORE Rules to Contrast two examples i,j are below and attributes are derived from MAIN_KEYS:
       1. `i_demo_type` != `j_demo_type`
         1. Variation in the type of task creates contrastive samples
       2. `i_demo_type` == `j_demo_type` && `i_target_id` != `j_target_id`
-        1. Variation in the target object apon which task is done creates contrastive examples
+        1. If the task is the same the variation in the target object creates contrastive examples
       3. `i_demo_type` == `j_demo_type` && `demo_type` == `pouring` && `i_target_id` == `j_target_id` && `i_amount` != `j_amount`
         1. Variation in the amounts volume in pour creates contrastive samples
+
+    USAGE : 
+    ```
+        MAIN_META_PTH = "<PATH_TO_METADATA_CSV>"
+        DEMO_DS_FILE = "<PATH_TO_MASSIVE_HDF5_DEMOSTRATION_DATASET>"
+        STORING_FOLDER = "<PATH_TO_FOLDER_WHERE_WE_STORE_DATASET>"
+        # STORING_FOLDER shouldn't exist
+        contrastive_datamaker = HDF5ContrastiveSetCreator(MAIN_META_PTH,DEMO_DS_FILE,)
+        contrastive_datamaker.make_dataset(STORING_FOLDER)
+    ```
     """
 
     INIT_META_COLUMNS = [
@@ -445,7 +464,8 @@ class HDF5ContrastiveSetCreator:
     TRAIN_PREFIX ='train_'
     TEST_PREFIX ='test_'
 
-    HD5DATASET_NAME = 'contrastive_ids'
+    HDF5_DATASET_NAME = HDF5_DATASET_NAME
+
 
     def __init__(self,
                  metafile_path: str,
@@ -529,7 +549,7 @@ class HDF5ContrastiveSetCreator:
     
     def _save_contrastive_set(self,save_path:str,sample_indices:List):
         with h5py.File(save_path,'w') as f:
-          f.create_dataset(self.HD5DATASET_NAME,data=np.array(sample_indices),dtype='i')
+          f.create_dataset(self.HDF5_DATASET_NAME,data=np.array(sample_indices),dtype='i')
 
 
     def _save_contrastive_samples(self,\
@@ -548,9 +568,12 @@ class HDF5ContrastiveSetCreator:
         
         dataframe.to_csv(os.path.join(save_path,meta_path))
         self._save_contrastive_set(os.path.join(save_path,datasetpth),sample_indices)
-    
 
-    def make_dataset(self,save_path):
+    def make_dataset(self,save_path:str):
+        """make_dataset [summary]
+        :param save_path: Path to folder. Has to not exist so dataset is created and populated within that.
+        :type save_path: str
+        """
         assert not is_present(save_path)
         # $ First find partitions for the train and the test set samples from the Meta-dataframe.
         train_df, test_df = self._partition_train_test()
@@ -570,4 +593,5 @@ class HDF5ContrastiveSetCreator:
         safe_mkdir(save_path)
         self._save_contrastive_samples(save_path,train_df,train_sample_indexes,train=True)
         self._save_contrastive_samples(save_path,test_df,test_sample_indexes,train=False)
-        # return train_df,test_df,train_indices,test_indices
+        # $ Save the control parameters which created the dataset. 
+        save_json_to_file(os.path.join(save_path,self.CREATION_PARAMS_FILENAME),self.control_params.to_json())
