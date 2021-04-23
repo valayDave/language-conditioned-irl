@@ -561,9 +561,9 @@ class HDF5ContrastiveSetCreator:
             mapped_arr.append([index_map[pid], index_map[nid]])
         return mapped_arr
 
-    def _make_join_data_for_indices(self,sample_indices:List[List[int]]):
+    def _make_join_data_for_indices(self,sample_indices:List[List[int]],chunk_size=256):
         unique_idxes = list(set([x for i in sample_indices for x in i]))
-        chunked_demo_indexes = self.make_chunks_based_indexes(unique_idxes,chunk_size=self.self.chunk_size)
+        chunked_demo_indexes = self.make_chunks_based_indexes(unique_idxes,chunk_size=chunk_size)
         # $ Extract the ids,seqs and msk from the main dataset and filter the chunks using the `chunked_demo_indexes` 
         self.logger.info("Retrieving Chunks")
         id_chunks,seq_chunks,msk_chunks = self._retrieve_sequence_and_masks(chunked_demo_indexes)
@@ -586,7 +586,7 @@ class HDF5ContrastiveSetCreator:
         
         return concat_seq_dict,concat_msk_dict,sorted(unique_idxes)
 
-    def _save_contrastive_set(self, save_path: str, sample_indices: List[List[int]],cache_main=True):
+    def _save_hdf5_file(self, save_path: str, sample_indices: List[List[int]],cache_main=True,chunk_size=256):
         with h5py.File(save_path, 'w') as contrastive_ds_file:
             # $ Store info from main demonstration store
             contrastive_ds_file.create_dataset(f'{self.HDF5_DATASET_NAME_MAIN_DEMO}',
@@ -598,7 +598,7 @@ class HDF5ContrastiveSetCreator:
             # $ Create a cache of the samples from the demonstration dataset by filtering via chunks
             concat_seq_dict,\
             concat_msk_dict,\
-            sorted_demo_idxs = self._make_join_data_for_indices(sample_indices)
+            sorted_demo_idxs = self._make_join_data_for_indices(sample_indices,chunk_size=chunk_size)
             self.logger.info(f"Data is Joined Saving in {contrastive_ds_file}")
 
             seq_grp = contrastive_ds_file.create_group(GROUPNAMES.sequences)
@@ -689,6 +689,7 @@ class HDF5ContrastiveSetCreator:
                                   save_path: str,
                                   dataframe: pandas.DataFrame,
                                   sample_indices: List,
+                                  chunk_size=256,
                                   train=False):
         meta_path = None
         datasetpth = None
@@ -701,11 +702,12 @@ class HDF5ContrastiveSetCreator:
 
         dataframe.to_csv(os.path.join(save_path, meta_path))
         dataset_savepth = os.path.join(save_path, datasetpth)
-        self._save_contrastive_set(dataset_savepth,\
+        self._save_hdf5_file(dataset_savepth,\
                                     sample_indices,\
+                                    chunk_size=chunk_size,\
                                     cache_main=self.control_params.cache_main)
 
-    def make_dataset(self, save_path: str):
+    def make_dataset(self, save_path: str,chunk_size=256):
         """make_dataset [summary]
         :param save_path: Path to folder. Has to not exist so dataset is created and populated within that.
         :type save_path: str
@@ -731,9 +733,9 @@ class HDF5ContrastiveSetCreator:
         # $ also save the Metadata about the extracted Meta data of the test/trainset.
         safe_mkdir(save_path)
         self._save_contrastive_samples(
-            save_path, train_df, train_sample_indexes, train=True)
+            save_path, train_df, train_sample_indexes, train=True,chunk_size=chunk_size)
         self._save_contrastive_samples(
-            save_path, test_df, test_sample_indexes, train=False)
+            save_path, test_df, test_sample_indexes, train=False,chunk_size=chunk_size)
         # $ Save the control parameters which created the dataset.
         save_json_to_file(self.control_params.to_json(), os.path.join(
             save_path, self.CREATION_PARAMS_FILENAME))
