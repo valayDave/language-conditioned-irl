@@ -457,7 +457,7 @@ class ContrastiveSampleGeneratedDataset(Dataset):
     def _load_contrastive_set(self,filename:str):
         assert is_present(filename), f"Contrastive Set {filename} should exist!"
         self.contrastive_file = h5py.File(filename,'r')
-        self.contrastive_dataset = self.contrastive_file[HDF5_DATASET_NAME]
+        self.contrastive_dataset = list(self.contrastive_file[HDF5_DATASET_NAME])
        
     def __len__(self):
         return len(self.contrastive_dataset)
