@@ -683,6 +683,8 @@ class HDF5ContrastiveSetCreator:
                 curr_arr = [poped_idx]
             else:
                 curr_arr.append(poped_idx)
+        if len(curr_arr) > 0:
+            chunked_arr.append(curr_arr)
         return chunked_arr
 
     def _save_contrastive_samples(self,

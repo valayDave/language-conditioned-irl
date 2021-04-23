@@ -460,7 +460,7 @@ class ContrastiveSampleGeneratedDataset(Dataset):
     def _open_dataset(self,filename):
         assert is_present(filename), f"Contrastive Set {filename} should exist!"
         self.h5 = h5py.File(filename,'r')
-        self.id_list = self.h5.get(GROUPNAMES.id_list)[GROUPNAMES.id_list]
+        self.id_list = self.h5.get(GROUPNAMES.id_list)
         self.sequences = self.h5.get(GROUPNAMES.sequences)
         self.masks = self.h5.get(GROUPNAMES.masks)
         self.contrastive_indices = self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES)
