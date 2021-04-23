@@ -516,7 +516,7 @@ class HDF5ContrastiveSetCreator:
         
         return collated_id_data
 
-    def _map_to_demo_indexes(self,collated_ids:List[Tuple[str,str]],index_map:Dict[str:int]):
+    def _map_to_demo_indexes(self,collated_ids:List[Tuple[str,str]],index_map:Dict[str,int]):
         """_map_to_demo_indexes 
         collated_ids : List of tuples with pos/neg ids in them 
         index_map : dictionary to map strings in `self.id_list` to index so that it can be used to help collate indexes for indexdata
