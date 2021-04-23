@@ -537,7 +537,6 @@ class HDF5ContrastiveSetCreator:
                                   dataframe:pandas.DataFrame,\
                                   sample_indices:List,\
                                   train=False):
-        safe_mkdir(save_path)
         meta_path = None 
         datasetpth = None
         if train:
@@ -568,6 +567,7 @@ class HDF5ContrastiveSetCreator:
         test_sample_indexes = self._map_to_demo_indexes(test_collated_ids,index_map)
         # $ Save the contrastive indices of the into last hdf5 file and 
         # $ also save the Metadata about the extracted Meta data of the test/trainset.
+        safe_mkdir(save_path)
         self._save_contrastive_samples(save_path,train_df,train_sample_indexes,train=True)
-        self._save_contrastive_samples(save_path,test_df,test_sample_indexes,train=True)
+        self._save_contrastive_samples(save_path,test_df,test_sample_indexes,train=False)
         # return train_df,test_df,train_indices,test_indices
