@@ -455,20 +455,37 @@ class ContrastiveSampleGeneratedDataset(Dataset):
                 main_meta_path=None) -> None:
         super().__init__()
         self.demods = DemonstrationsDataset(filename)
-        self._load_contrastive_set(constrastive_set_hdf5_file)
-    
-    def _load_contrastive_set(self,filename:str):
+        self._open_dataset(constrastive_set_hdf5_file)
+
+    def _open_dataset(self,filename):
         assert is_present(filename), f"Contrastive Set {filename} should exist!"
-        self.contrastive_file = h5py.File(filename,'r')
-        self.contrastive_dataset = list(self.contrastive_file[CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO])
+        self.h5 = h5py.File(filename,'r')
+        self.id_list = self.h5.get(GROUPNAMES.id_list)[GROUPNAMES.id_list]
+        self.sequences = self.h5.get(GROUPNAMES.sequences)
+        self.masks = self.h5.get(GROUPNAMES.masks)
+        self.contrastive_indices = self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES)
        
     def __len__(self):
-        return len(self.contrastive_dataset)
+        return len(self.contrastive_indices)
+
+    def get_channel_data(self,index):
+        """__getitem__ 
+        returns dictionary of ChannelData
+        """
+        channel_dict = {}
+        for k in self.sequences.keys():
+            mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
+            channel_dict[k] = ChannelData(
+                mask=mask,
+                sequence=torch.from_numpy(self.sequences[k][index]),
+                name=k
+            )
+        return channel_dict
 
     def __getitem__(self, idx):
-        idx_i,idx_j = self.contrastive_dataset[idx]
-        samp_i = self.demods[idx_i] # Dictionary
-        samp_j = self.demods[idx_j] # Dictionary
+        idx_i,idx_j = self.contrastive_indices[idx]
+        samp_i = self.get_channel_data(idx_i) # Dictionary
+        samp_j = self.get_channel_data(idx_j) # Dictionary
         return samp_i,samp_j
     
     @staticmethod
