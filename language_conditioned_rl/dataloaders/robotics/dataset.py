@@ -463,7 +463,7 @@ class ContrastiveSampleGeneratedDataset(Dataset):
         self.id_list = self.h5.get(GROUPNAMES.id_list)
         self.sequences = self.h5.get(GROUPNAMES.sequences)
         self.masks = self.h5.get(GROUPNAMES.masks)
-        self.contrastive_indices = self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES)
+        self.contrastive_indices = list(self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES))
        
     def __len__(self):
         return len(self.contrastive_indices)
