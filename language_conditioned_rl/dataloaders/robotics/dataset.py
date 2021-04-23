@@ -9,6 +9,7 @@ import zlib
 import itertools
 import pandas
 import base64
+from functools import lru_cache
 import os
 import h5py
 from typing import Dict, List
@@ -412,9 +413,6 @@ class DemonstrationsDataset(Dataset):
         self.masks = None
         print("Dataset Closed")
 
-    def __len__(self):
-        return len(self.id_list)
-
 
 
 class RandomPairwiseDataset(Dataset):
@@ -468,6 +466,7 @@ class ContrastiveSampleGeneratedDataset(Dataset):
     def __len__(self):
         return len(self.contrastive_indices)
 
+    @lru_cache(maxsize=4000)    
     def get_channel_data(self,index):
         """__getitem__ 
         returns dictionary of ChannelData
