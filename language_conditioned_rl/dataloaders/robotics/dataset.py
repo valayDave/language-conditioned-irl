@@ -452,17 +452,24 @@ class ContrastiveSampleGeneratedDataset(Dataset):
                 constrastive_set_hdf5_file:str,\
                 main_meta_path=None) -> None:
         super().__init__()
-        # self.demods = DemonstrationsDataset(filename)
-        # self._open_dataset()
         self.constrastive_set_hdf5_file=constrastive_set_hdf5_file
+        self._open_dataset(self.constrastive_set_hdf5_file)
 
     def _open_dataset(self,filename):
         assert is_present(filename), f"Contrastive Set {filename} should exist!"
         self.h5 = h5py.File(filename,'r')
         self.id_list = self.h5.get(GROUPNAMES.id_list)
-        self.sequences = self.h5.get(GROUPNAMES.sequences)
-        self.masks = self.h5.get(GROUPNAMES.masks)
+        self.sequences = self.load_sequences(self.h5.get(GROUPNAMES.sequences))
+        self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks))
         self.contrastive_indices = list(self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES))
+    
+    @staticmethod
+    def load_sequences(seq):
+        dd = {}
+        for k in seq:
+          dd[k] = np.array(seq[k])
+        return dd
+       
        
     def __len__(self):
         return len(self.contrastive_indices)
@@ -482,8 +489,6 @@ class ContrastiveSampleGeneratedDataset(Dataset):
         return channel_dict
 
     def __getitem__(self, idx):
-        if self.h5 is None:
-            self._open_dataset(self.constrastive_set_hdf5_file)
         idx_i,idx_j = self.contrastive_indices[idx]
         samp_i = self.get_channel_data(idx_i) # Dictionary
         samp_j = self.get_channel_data(idx_j) # Dictionary
