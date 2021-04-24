@@ -15,7 +15,8 @@ from ..dataloaders.robotics.dataset import \
     is_present,\
     load_json_from_file,\
     collate_indices,\
-    map_to_contrastive_indexes_to_ids
+    map_to_contrastive_indexes_to_ids,\
+    save_json_to_file
 
 from ..dataloaders.robotics.datamaker import \
     HDF5ContrastiveSetCreator,\
@@ -245,20 +246,42 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
                 'rule',
                 'id_pair'
             ]
+            
             datazipper_params = (
-                posp_reward.cpu().numpy(),
-                posn_reward.cpu().numpy(),
-                negp_reward.cpu().numpy(),
-                negn_reward.cpu().numpy(),
+                posp_reward.cpu().squeeze(0).numpy(),
+                posn_reward.cpu().squeeze(0).numpy(),
+                negp_reward.cpu().squeeze(0).numpy(),
+                negn_reward.cpu().squeeze(0).numpy(),
                 rules_of_samples,
                 contrastive_id_list
             )
             
-            for datatuple in zip(datazipper_params):
-                final_dataset_collection.append(
-                    {h:t for h,t in zip(datazipper_headers,datatuple)}
-                )
+            for datatuple in zip(*datazipper_params):
+              data_dict = {}
+              for h,t in zip(datazipper_headers,datatuple):
+                if type(t) == np.ndarray:
+                  data_dict[h] = t[0]
+                else:
+                  data_dict[h]=t
+              final_dataset_collection.append(data_dict)
 
     return final_dataset_collection
 
 
+def save_test_data(
+        model:LGRRoboRewardLearner,\
+        logger,
+        contrastive_set_generated_folder:str,\
+        batch_size = 20,\
+        size:int=200,\
+    ):
+    return_object = run_test_pipeline(
+        model,
+        contrastive_set_generated_folder,
+        batch_size,
+        size
+    )
+    save_tests = f'{logger.experiment_id}.json'
+    save_json_to_file(return_object,save_tests)
+    logger.experiment.log_artifact(save_tests)
+    return save_tests
