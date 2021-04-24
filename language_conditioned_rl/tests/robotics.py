@@ -87,7 +87,7 @@ class RoboticsTestingDataset(Dataset):
         )
         control_parameter_pth = os.path.join(
             folder_pth,\
-            HDF5ContrastiveSetCreator.TEST_PREFIX + HDF5ContrastiveSetCreator.CREATION_PARAMS_FILENAME
+            HDF5ContrastiveSetCreator.CREATION_PARAMS_FILENAME
         )
         assert is_present(test_hdf5pth), f"Contrastive Set {test_hdf5pth} should exist!"
         assert is_present(test_hdf5pth), f"Contrastive Set Metadata {test_metapth} should exist and is Required by test Set"
@@ -253,7 +253,7 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
                 final_dataset_collection.append(
                     {h:t for h,t in zip(datazipper_headers,datatuple)}
                 )
-                
+
     return final_dataset_collection
 
 
