@@ -12,7 +12,7 @@ import base64
 from functools import lru_cache
 import os
 import h5py
-from typing import Dict, List
+from typing import Dict, List,Tuple
 import random
 from ..channel import ChannelData, ChannelHolder, ContrastiveGenerator
 
@@ -169,6 +169,36 @@ def pad_2d_tensors(sequences, max_len=None, padding_val=0):
         out_tensor[i, :length] = tensor
         mask[i, :length] = 1
     return out_tensor, mask
+
+def collate_indices(dataframe: pandas.DataFrame, indices: List[Tuple[int, int]],identifier_name=None):
+    """_collate_indices 
+    Correlate the indices and store return the list of tuples with identifiers to the objects in its dataframe
+    """
+    assert identifier_name is not None and identifier_name in dataframe.columns
+    collated_id_data = []
+    for idx_tuple in indices:
+        pos_idx, neg_idx = idx_tuple
+        pos_obj, neg_obj = dataframe.iloc[dataframe.index.get_loc(pos_idx)],\
+            dataframe.iloc[dataframe.index.get_loc(neg_idx)]
+
+        posid, negid = pos_obj[identifier_name],\
+            neg_obj[identifier_name]
+        collated_id_data.append(
+            (posid, negid)
+        )
+
+    return collated_id_data
+
+def map_to_contrastive_indexes_to_ids(collated_ids: List[Tuple[str, str]], index_map: Dict[str, int]):
+    """_map_to_demo_indexes 
+    collated_ids : List of tuples with pos/neg ids in them 
+    index_map : dictionary to map strings in `self.id_list` to index so that it can be used to help collate indexes for indexdata
+    """
+    mapped_arr = []
+    for indexes in collated_ids:
+        pid, nid = indexes
+        mapped_arr.append([index_map[pid], index_map[nid]])
+    return mapped_arr
 
 
 class RoboDataUtils:
@@ -448,7 +478,6 @@ class ContrastiveSampleGeneratedDataset(Dataset):
     Needs the `ContrastiveCollateFn` as a part of its data loader.
     """
     def __init__(self,\
-                filename:str,\
                 constrastive_set_hdf5_file:str,\
                 main_meta_path=None) -> None:
         super().__init__()

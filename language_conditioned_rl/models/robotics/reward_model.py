@@ -73,7 +73,6 @@ class LGRRoboRewardLearner(pl.LightningModule):
 
   def validation_step(self, batch, batch_nb):
     batch.to_device(self.device)
-    batch.to_device(self.device)
     intermediate_feature_tuple = self.get_backboone_features(
         batch)
     pp_tensor, np_tensor, nn_tensor, pn_tensor = intermediate_feature_tuple
@@ -97,7 +96,6 @@ class LGRRoboRewardLearner(pl.LightningModule):
     return {'loss': loss, 'val_loss': loss.detach().cpu()}
 
   def test_step(self, batch, batch_nb):
-    batch.to_device(self.device)
     batch.to_device(self.device)
     intermediate_feature_tuple = self.get_backboone_features(
         batch)

@@ -40,7 +40,9 @@ from .dataset import MAX_TRAJ_LEN,\
     RoboDataUtils,\
     DemonstrationsDataset,\
     CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO,\
-    CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES
+    CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES,\
+    collate_indices,\
+    map_to_contrastive_indexes_to_ids
 import gc
 import logging
 
@@ -258,6 +260,11 @@ class SampleContrastingRule(metaclass=abc.ABCMeta):
     The Goal of this class is to apply the rules of contrasting on the Metadata 
     DataFrame and extract the contrasting indices based on the rule. 
     `num_samples_per_rule` controls the number of indices that will get extracted using this contrastive matching rule. 
+
+    Implement the Following Methods By Inheritance.:
+        : _execute_rule : Filter a data frame with indices that belong to that contrastive samples of the rules. 
+        : _validate_rule : Create a function to validate if two sample follow this rule or not. 
+    
     """
 
     def __init__(self, description=None):
@@ -265,11 +272,21 @@ class SampleContrastingRule(metaclass=abc.ABCMeta):
         self.rule_name = self.__class__.__name__
 
     def __call__(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
-        assert set(HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values()).issubset(set(metadf.columns)
-                                                                                ), f'{set(metadf.columns)} Not a Part of {set(HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values())}'
+        required_columns = HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values()
+        assert set(required_columns).issubset(set(metadf.columns)), \
+                f'{set(metadf.columns)} Not a Part of {set(required_columns)}'
         return self._execute_rule(metadf, num_samples_per_rule=num_samples_per_rule)
 
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 100) -> List[Tuple[str, str]]:
+        raise NotImplementedError()
+    
+    def validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
+        required_columns = HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values()
+        assert set(required_columns).issubset(set(demo_a.keys()))
+        assert set(required_columns).issubset(set(demo_b.keys()))
+        self._validate_rule(demo_a,demo_b)
+        
+    def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
         raise NotImplementedError()
 
 
@@ -293,6 +310,10 @@ class ContrastingActionsRule(SampleContrastingRule):
             return_indexs.append((random.choice(set0), random.choice(set1)))
 
         return return_indexs
+    
+    def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
+        return demo_a['demo_type'] != demo_b['demo_type']
+
 
 
 class ContrastingObjectRule(SampleContrastingRule):
@@ -320,6 +341,12 @@ class ContrastingObjectRule(SampleContrastingRule):
                 all_idxs.append((random.choice(set0), random.choice(set1)))
         return all_idxs
 
+    def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
+        return demo_a['demo_type'] == demo_b['demo_type'] \
+                and \
+                demo_a['target_id'] != demo_b['target_id']
+
+
 
 class PouringIntensityRule(SampleContrastingRule):
     """PouringIntensityRule 
@@ -345,6 +372,17 @@ class PouringIntensityRule(SampleContrastingRule):
             all_idxs.append((random.choice(set0), random.choice(set1)))
 
         return all_idxs
+    
+    def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
+        return demo_a['demo_type'] == 1 \
+                and \
+                demo_a['pouring_amount'] != demo_b['pouring_amount']
+
+POSSIBLE_RULES = [
+    ContrastingActionsRule,
+    ContrastingObjectRule,
+    PouringIntensityRule,
+]
 
 
 @dataclass
@@ -366,17 +404,11 @@ class ContrastiveControlParameters:
     """
     num_train_samples: int = 10000
     num_test_samples: int = 10000
-    rules: List[SampleContrastingRule] = field(default_factory=lambda: [
-        ContrastingActionsRule(),
-        ContrastingObjectRule(),
-        PouringIntensityRule(),
-    ])
+    rules: List[SampleContrastingRule] = field(default_factory=lambda: [r() for r in POSSIBLE_RULES])
     train_rule_size_distribution: List[int] = field(default_factory=lambda: [])
     test_rule_size_distribution: List[int] = field(default_factory=lambda: [])
-
     total_train_demos: int = 12000
     total_test_demos: int = 4000
-
     cache_main:bool = True
 
     def __post_init__(self):
@@ -393,13 +425,26 @@ class ContrastiveControlParameters:
         data_dict['rules'] = [r.rule_name for r in data_dict['rules']]
         return data_dict
 
+    @classmethod
+    def from_json(cls,json_dict:dict):
+        assert set(json_dict.keys()).issubset(
+            cls.__dict__.keys()
+        )
+        assert 'rules' in json_dict
+        rules = []
+        for rule in json_dict['rules']:
+            chosen_rule = [x for x in POSSIBLE_RULES if x.__name__ == rule]
+            if len(chosen_rule) == 0:
+                print(f"Couldn't Find Rule : {rule}")
+                continue
+            rules.append(chosen_rule[0]())
+        
+        json_dict['rules'] = rules
+        return cls(**json_dict)
+
 
 DEFAULT_CONTROL_PARAMS = ContrastiveControlParameters(
-    rules=[
-        ContrastingActionsRule(),
-        ContrastingObjectRule(),
-        PouringIntensityRule(),
-    ],
+    rules= [r() for r in POSSIBLE_RULES],
     num_train_samples=50000,
     num_test_samples=1000
 )
@@ -536,34 +581,6 @@ class HDF5ContrastiveSetCreator:
 
         return all_indices
 
-    def _collate_indices(self, dataframe: pandas.DataFrame, indices: List[Tuple[int, int]]):
-        """_collate_indices 
-        Correlate the indices and store return the list of tuples with identifiers to the objects
-        """
-        collated_id_data = []
-        for idx_tuple in indices:
-            pos_idx, neg_idx = idx_tuple
-            pos_obj, neg_obj = dataframe.iloc[dataframe.index.get_loc(pos_idx)],\
-                dataframe.iloc[dataframe.index.get_loc(neg_idx)]
-
-            posid, negid = pos_obj[self.MAIN_IDENTIFIER_NAME],\
-                neg_obj[self.MAIN_IDENTIFIER_NAME]
-            collated_id_data.append(
-                (posid, negid)
-            )
-
-        return collated_id_data
-
-    def _map_to_demo_indexes(self, collated_ids: List[Tuple[str, str]], index_map: Dict[str, int]):
-        """_map_to_demo_indexes 
-        collated_ids : List of tuples with pos/neg ids in them 
-        index_map : dictionary to map strings in `self.id_list` to index so that it can be used to help collate indexes for indexdata
-        """
-        mapped_arr = []
-        for indexes in collated_ids:
-            pid, nid = indexes
-            mapped_arr.append([index_map[pid], index_map[nid]])
-        return mapped_arr
 
     def _make_join_data_for_indices(self,sample_indices:List[List[int]],chunk_size=256):
         unique_idxes = list(set([x for i in sample_indices for x in i]))
@@ -588,7 +605,8 @@ class HDF5ContrastiveSetCreator:
         for k in concat_msk_dict:
             concat_msk_dict[k] = np.concatenate(concat_msk_dict[k])
         
-        return concat_seq_dict,concat_msk_dict,sorted(unique_idxes)
+        id_list = [i for ix in id_chunks for i in  ix]
+        return concat_seq_dict,concat_msk_dict,sorted(unique_idxes),id_list
 
     def _save_hdf5_file(self, save_path: str, sample_indices: List[List[int]],cache_main=True,chunk_size=256):
         with h5py.File(save_path, 'w') as contrastive_ds_file:
@@ -602,7 +620,8 @@ class HDF5ContrastiveSetCreator:
             # $ Create a cache of the samples from the demonstration dataset by filtering via chunks
             concat_seq_dict,\
             concat_msk_dict,\
-            sorted_demo_idxs = self._make_join_data_for_indices(sample_indices,chunk_size=chunk_size)
+            sorted_demo_idxs,\
+            id_list = self._make_join_data_for_indices(sample_indices,chunk_size=chunk_size)
             self.logger.info(f"Data is Joined Saving in {contrastive_ds_file}")
 
             seq_grp = contrastive_ds_file.create_group(GROUPNAMES.sequences)
@@ -636,6 +655,8 @@ class HDF5ContrastiveSetCreator:
             # $ This creates a new mapping of the contrastive indices based on the cache.
             contrastive_ds_file.create_dataset(f'{self.HDF5_DATASET_NAME_CACHE_IDX}',
                              data=np.array(cache_indices), dtype='i')
+
+            contrastive_ds_file.create_dataset(GROUPNAMES.id_list,data=id_list,chunks=True,dtype='S20')
             
 
     def _retrieve_sequence_and_masks(self,chunked_indexes:List[List[int]]):
@@ -715,6 +736,13 @@ class HDF5ContrastiveSetCreator:
 
     def make_dataset(self, save_path: str,chunk_size=256):
         """make_dataset [summary]
+        DemonstrationDataset : Dataset with all the demos. HDF5 File created by `H5DataCreatorMainDataCreator`.
+        Function does following steps : 
+            - `_partition_train_test` : partition the dataset to train/test via metadata dataframe
+            - `_create_distributon` : create the distriubtion of contrastive samples based on the `SampleContrastingRule`. Returns the indices of the data found in dataframes
+            - `collate_indices` : Correlate the indices of the dataframe with the ID values within the dataframe and make list of id pairs of contrastives samples.
+            - `map_to_contrastive_indexes_to_ids` : Maps the ID values of filtered contrastive pairs to Indexes in the `DemonstrationDataset` using an index map
+            - `_save_contrastive_samples` : Saves the dataset to a HDF5 File along with thier metadata Files to the `save_path`
         :param save_path: Path to folder. Has to not exist so dataset is created and populated within that.
         :type save_path: str
         """
@@ -725,15 +753,15 @@ class HDF5ContrastiveSetCreator:
         train_indices = self._create_distributon(train_df, train=True)
         test_indices = self._create_distributon(test_df, train=False)
         # $ Using indices created by the rules, Find the Ids' they Belong to in their dataframes .
-        train_collated_ids = self._collate_indices(train_df, train_indices)
-        test_collated_ids = self._collate_indices(test_df, test_indices)
+        train_collated_ids = collate_indices(train_df, train_indices,identifier_name=self.MAIN_IDENTIFIER_NAME)
+        test_collated_ids = collate_indices(test_df, test_indices,identifier_name=self.MAIN_IDENTIFIER_NAME)
         # $ Find the mapping index of the ids in the `self.id_list`. It will provide indexes in the main demonstration dataset
         # $ Make a dictionary which hold the index positions to use it .
         index_map = {k.decode('utf-8'): idx for idx,
                      k in enumerate(self.demo_dataset.id_list)}
-        train_sample_indexes = self._map_to_demo_indexes(
+        train_sample_indexes = map_to_contrastive_indexes_to_ids(
             train_collated_ids, index_map)
-        test_sample_indexes = self._map_to_demo_indexes(
+        test_sample_indexes = map_to_contrastive_indexes_to_ids(
             test_collated_ids, index_map)
         # $ Save the contrastive indices of the into last hdf5 file and
         # $ also save the Metadata about the extracted Meta data of the test/trainset.
