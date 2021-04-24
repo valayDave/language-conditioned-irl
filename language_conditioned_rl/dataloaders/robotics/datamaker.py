@@ -410,6 +410,7 @@ class ContrastiveControlParameters:
     total_train_demos: int = 12000
     total_test_demos: int = 4000
     cache_main:bool = True
+    created_on:str = None
 
     def __post_init__(self):
 
