@@ -220,17 +220,22 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
             pn_channels,\
             nn_channels,\
             np_channels = contrastive_sample_generator.create_contrastive_inputs('text')
+            
+            posp_reward_features,_ = model(pp_channels)
             posp_reward = model.reward_predictor(
-                model(pp_channels)
+                posp_reward_features
             )
+            posn_reward_features,_ = model(nn_channels)
             posn_reward = model.reward_predictor(
-                model(nn_channels)
+                posn_reward_features
             )
+            negp_reward_features,_ = model(pn_channels)
             negp_reward = model.reward_predictor(
-                model(pn_channels)
+                negp_reward_features
             )
+            negn_reward_features,_ = model(np_channels)
             negn_reward = model.reward_predictor(
-                model(np_channels)
+                negn_reward_features
             )
             datazipper_headers = [
                 'pp_reward',
