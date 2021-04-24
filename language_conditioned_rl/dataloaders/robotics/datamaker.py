@@ -366,7 +366,11 @@ class ContrastiveControlParameters:
     """
     num_train_samples: int = 10000
     num_test_samples: int = 10000
-    rules: List[SampleContrastingRule] = field(default_factory=lambda: [])
+    rules: List[SampleContrastingRule] = field(default_factory=lambda: [
+        ContrastingActionsRule(),
+        ContrastingObjectRule(),
+        PouringIntensityRule(),
+    ])
     train_rule_size_distribution: List[int] = field(default_factory=lambda: [])
     test_rule_size_distribution: List[int] = field(default_factory=lambda: [])
 
@@ -396,7 +400,7 @@ DEFAULT_CONTROL_PARAMS = ContrastiveControlParameters(
         ContrastingObjectRule(),
         PouringIntensityRule(),
     ],
-    num_train_samples=10000,
+    num_train_samples=50000,
     num_test_samples=1000
 )
 
