@@ -99,7 +99,7 @@ class RoboticsTestingDataset(Dataset):
         self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks))
         # self.contrastive_indices = list(self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES))
         # $ Metadata Loading
-        self.dataset_meta = pandas.DataFrame(test_metapth)
+        self.dataset_meta = pandas.read_csv(test_metapth)
         self.control_parameters = ContrastiveControlParameters.from_json(
             load_json_from_file(control_parameter_pth)
         )
