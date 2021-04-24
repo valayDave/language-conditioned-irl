@@ -427,9 +427,6 @@ class ContrastiveControlParameters:
 
     @classmethod
     def from_json(cls,json_dict:dict):
-        assert set(json_dict.keys()).issubset(
-            cls.__dict__.keys()
-        )
         assert 'rules' in json_dict
         rules = []
         for rule in json_dict['rules']:
