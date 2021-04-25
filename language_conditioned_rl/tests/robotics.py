@@ -219,6 +219,6 @@ def save_test_data(
     save_tests = f'{logger.experiment_id}.json'
     save_json_to_file(return_object,save_tests)
     logger.experiment.log_artifact(save_tests)
-    plot_test_case_results(return_object,show_plot=show_plot,plt_name=plt_name)
+    plot_test_case_results(return_object,show=show_plot,plt_name=plt_name)
     logger.experiment.log_artifact(plt_name)
     # return save_tests
