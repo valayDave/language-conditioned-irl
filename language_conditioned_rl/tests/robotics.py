@@ -6,7 +6,7 @@ import torch
 import os
 import h5py
 from typing import List
-import matplotlib as plt
+import matplotlib.pyplot as plt
 
 from ..models.robotics.reward_model import LGRRoboRewardLearner
 from ..dataloaders.channel import ChannelData,ChannelHolder,ContrastiveGenerator
