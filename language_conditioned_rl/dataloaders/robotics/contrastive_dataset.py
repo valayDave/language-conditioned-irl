@@ -162,8 +162,8 @@ class SentenceContrastiveDataset(Dataset):
         all_indices = []
         rule_distribution = []
         # $ Use rule to create contrastive indices
-        for size, rule in zip(size_dis, rules):
-            created_indices = rule(dataframe, num_samples_per_rule=size)
+        for size_value, rule in zip(size_dis, rules):
+            created_indices = rule(dataframe, num_samples_per_rule=size_value)
             rule_distribution.extend([rule.rule_name for _ in range(len(created_indices))])
             all_indices.extend(created_indices)
 
