@@ -82,11 +82,11 @@ class SentenceContrastiveDataset(Dataset):
         prefix = HDF5ContrastiveSetCreator.TRAIN_PREFIX if train else HDF5ContrastiveSetCreator.TEST_PREFIX
         metapth = os.path.join(\
             folder_pth,\
-            prefix
+            prefix + HDF5ContrastiveSetCreator.CONTRASITIVE_META_FILENAME
         )
         hdf5pth = os.path.join(\
             folder_pth,\
-            prefix
+            prefix + HDF5ContrastiveSetCreator.CONTRASITIVE_SET_FILENAME
         )
         control_parameter_pth = os.path.join(
             folder_pth,\
