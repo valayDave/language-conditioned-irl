@@ -162,7 +162,7 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
               data_dict = {}
               for h,t in zip(datazipper_headers,datatuple):
                 if type(t) == np.ndarray:
-                  data_dict[h] = t[0]
+                  data_dict[h] = float(t[0])
                 else:
                   data_dict[h]=t
               final_dataset_collection.append(data_dict)
