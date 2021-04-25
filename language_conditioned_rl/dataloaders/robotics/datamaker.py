@@ -45,7 +45,7 @@ from .dataset import MAX_TRAJ_LEN,\
 from .utils import \
     RoboDataUtils,\
     load_json_from_file,\
-    save_json_to_file,\
+    save_json_to_file
 
 
 

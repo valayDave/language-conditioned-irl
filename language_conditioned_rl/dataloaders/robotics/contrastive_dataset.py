@@ -26,7 +26,7 @@ from .dataset import \
 from .datamaker import \
     HDF5ContrastiveSetCreator,\
     ContrastiveControlParameters,\
-    SampleContrastingRule,\
+    SampleContrastingRule
 
 
 class SentenceContrastiveDataset(Dataset):

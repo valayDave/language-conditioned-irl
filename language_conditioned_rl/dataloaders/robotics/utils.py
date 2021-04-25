@@ -13,7 +13,7 @@ from .dataset import \
     USE_CHANNELS,\
     MAX_TEXT_LENGTH,\
     DISCRETE_CHANNELS,\
-    get_padding,\
+    get_padding
 
 
 
