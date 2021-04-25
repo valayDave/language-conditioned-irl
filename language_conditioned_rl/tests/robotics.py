@@ -104,11 +104,12 @@ class RoboTestDataset(SentenceContrastiveDataset):
 def run_test_pipeline(model:LGRRoboRewardLearner,\
                     contrastive_set_generated_folder:str,\
                     batch_size = 20,\
+                    use_channels=USE_CHANNELS,\
                     size:int=200):
     dataset = RoboTestDataset(
         contrastive_set_generated_folder,
         size=size,\
-        use_channels=USE_CHANNELS,\
+        use_channels=use_channels,\
     )
     testing_loader = DataLoader(dataset,batch_size=batch_size,collate_fn=dataset.collate_fn())
     final_dataset_collection = []
@@ -206,12 +207,14 @@ def save_test_data(
         size:int=200,\
         plt_name='robo-reward-dist.pdf',\
         show_plot=False,
+        use_channels=USE_CHANNELS,
     ):
     return_object = run_test_pipeline(
         model,
         contrastive_set_generated_folder,
         batch_size,
-        size
+        size,
+        use_channels=use_channels
     )
     save_tests = f'{logger.experiment_id}.json'
     save_json_to_file(return_object,save_tests)
