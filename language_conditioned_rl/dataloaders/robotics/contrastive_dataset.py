@@ -99,7 +99,7 @@ class SentenceContrastiveDataset(Dataset):
         self.h5 = h5py.File(hdf5pth,'r')
         self.id_list = list(self.h5.get(GROUPNAMES.id_list))
         self.sequences = self.load_sequences(self.h5.get(GROUPNAMES.sequences),use_channels)
-        self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks),use_channels)
+        self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks),use_channels,mask=True)
         # $ Metadata Loading
         self.dataset_meta = pandas.read_csv(metapth)
         self.control_parameters = ContrastiveControlParameters.from_json(
@@ -169,10 +169,10 @@ class SentenceContrastiveDataset(Dataset):
         return all_indices , rule_distribution
     
     @staticmethod
-    def load_sequences(seq,channels):
+    def load_sequences(seq,channels,mask=False):
         dd = {}
         for k in channels:
-            assert k in seq, "Channel {k} not found in the HDF5 Dataset Sequence"
+            assert mask or k in seq.keys(), f"Channel {k} not found in the HDF5 Dataset Sequence"
             dd[k] = np.array(seq[k])
         return dd
        

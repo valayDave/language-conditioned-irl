@@ -271,17 +271,16 @@ class ContrastiveSampleGeneratedDataset(Dataset):
         self.h5 = h5py.File(filename,'r')
         self.id_list = self.h5.get(GROUPNAMES.id_list)
         self.sequences = self.load_sequences(self.h5.get(GROUPNAMES.sequences),use_channels)
-        self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks),use_channels)
+        self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks),use_channels,mask=True)
         self.contrastive_indices = list(self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES))
     
     @staticmethod
-    def load_sequences(seq,channels):
+    def load_sequences(seq,channels,mask=False):
         dd = {}
         for k in channels:
-            assert k in seq, "Channel {k} not found in the HDF5 Dataset Sequence"
+            assert mask or k in seq.keys(), f"Channel {k} not found in the HDF5 Dataset Sequence"
             dd[k] = np.array(seq[k])
         return dd
-       
        
     def __len__(self):
         return len(self.contrastive_indices)
