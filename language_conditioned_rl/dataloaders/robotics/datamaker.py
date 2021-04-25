@@ -353,6 +353,12 @@ class ContrastingObjectRule(SampleContrastingRule):
 class PouringIntensityRule(SampleContrastingRule):
     """PouringIntensityRule 
     Rule creates contrasting indexes for the pouring task with Little/Lot variations. 
+    
+    POSSIBLE BUG:
+    This function seems buggy. As if we are grouping on only `pouring_amount` then it serves a similar purpose as `ContrastingObjectRule`. as the examples can signify the same purpose as `ContrastingObjectRule`. 
+
+    BUG FIX:
+    This should be for same object! as ContrastingObjectRule already contrasts different `target_id`s. This should target pouring amounts for differnt ids. 
     """
 
     def __init__(self,):

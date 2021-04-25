@@ -212,8 +212,8 @@ def save_test_data(
     return_object = run_test_pipeline(
         model,
         contrastive_set_generated_folder,
-        batch_size,
-        size,
+        batch_size=batch_size,
+        size=size,
         use_channels=use_channels
     )
     save_tests = f'{logger.experiment_id}.json'
