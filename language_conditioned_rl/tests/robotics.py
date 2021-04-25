@@ -6,26 +6,50 @@ import torch
 import os
 import h5py
 from typing import List
+import matplotlib as plt
 
 from ..models.robotics.reward_model import LGRRoboRewardLearner
 from ..dataloaders.channel import ChannelData,ChannelHolder,ContrastiveGenerator
+from ..dataloaders.robotics.utils import \
+    load_json_from_file,\
+    save_json_to_file
+
 from ..dataloaders.robotics.dataset import \
     GROUPNAMES,\
     ContrastiveCollateFn,\
     is_present,\
-    load_json_from_file,\
     collate_indices,\
     map_to_contrastive_indexes_to_ids,\
-    save_json_to_file
+    USE_CHANNELS
 
 from ..dataloaders.robotics.datamaker import \
     HDF5ContrastiveSetCreator,\
     ContrastiveControlParameters,\
     SampleContrastingRule
-    
+
+from ..dataloaders.robotics.contrastive_dataset import SentenceContrastiveDataset    
+
 class RoboticsTestingDataset:
     pass
 
+RULE_MAP = {
+    # This helps with plotting charts by mapping pandas columns to lengend names and titles. 
+    "ContrastingActionsRule":{
+      "pos_traj_rw":"The sentence is describing task X and the trajectory followed task X",
+      "neg_traj_rw":"The sentence is describing task Y and the trajectory followed task X",
+      "plot_title":"Reward Distribution when the tasks are different "
+    },
+    "ContrastingObjectRule":{
+      "pos_traj_rw":"The sentence is describing object X in environment and the trajectory interacted with object X",
+      "neg_traj_rw":"The sentence is describing object Y in environment and the trajectory interacted with object X",
+      "plot_title":"Reward Distribution when the task is the same but the object is changed in the contrastive sentence"
+    },
+    "PouringIntensityRule":{
+      "pos_traj_rw":"The sentence is telling the robot to pour little and the robot did the same. Same for pouring a lot.",
+      "neg_traj_rw":"The sentence is telling the robot to pour little but the robot pours a lot. Visa-Versa for little",
+      "plot_title":"Reward Distribution in the pour Little vs lot case"
+    },
+}
 class TestSetCollateFn(ContrastiveCollateFn):
     """TestSetCollateFn 
     This collate function brings the metadata and along with the ids of the contrastive samples that are being compared. 
@@ -55,135 +79,9 @@ class TestSetCollateFn(ContrastiveCollateFn):
         return ContrastiveGenerator(core_d1_channels, core_d2_channels),rules,id_list
 
 
-class RoboticsTestingDataset(Dataset):
-    """RoboticsTestingDataset 
-    Derives From HDF5ContrastiveSetCreator
-
-    - This class will help make the test set configurable For differnt types of rule sets. 
-    
-    Key Data Attributes : 
-        contrastive_data:
-            contrastive_indices : Hold the list of indicies to master_data:DEMOS
-            indices_rules : Holds the string in rules
-        master_data
-            id_list : hold the actual list of Ids 
-            sequences : HOLD information channels. 
-            masks : holds the masks. 
-
-    """
-    def __init__(self,\
-                contrastive_set_generated_folder:str,\
-                size:int=200) -> None:
-        super().__init__()
-        self._open_dataset(contrastive_set_generated_folder,size)
-
-    def _open_dataset(self,folder_pth:str,size:int):
-        test_metapth = os.path.join(\
-            folder_pth,\
-            HDF5ContrastiveSetCreator.TEST_PREFIX + HDF5ContrastiveSetCreator.CONTRASITIVE_META_FILENAME
-        )
-        test_hdf5pth = os.path.join(\
-            folder_pth,\
-            HDF5ContrastiveSetCreator.TEST_PREFIX + HDF5ContrastiveSetCreator.CONTRASITIVE_SET_FILENAME
-        )
-        control_parameter_pth = os.path.join(
-            folder_pth,\
-            HDF5ContrastiveSetCreator.CREATION_PARAMS_FILENAME
-        )
-        assert is_present(test_hdf5pth), f"Contrastive Set {test_hdf5pth} should exist!"
-        assert is_present(test_hdf5pth), f"Contrastive Set Metadata {test_metapth} should exist and is Required by test Set"
-        assert is_present(control_parameter_pth), f"Contrastive Set Creation Control {control_parameter_pth} should exist and is Required by test Set"
-        # $ HDF5 Loading
-        self.h5 = h5py.File(test_hdf5pth,'r')
-        self.id_list = list(self.h5.get(GROUPNAMES.id_list))
-        self.sequences = self.load_sequences(self.h5.get(GROUPNAMES.sequences))
-        self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks))
-        # self.contrastive_indices = list(self.h5.get(CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES))
-        # $ Metadata Loading
-        self.dataset_meta = pandas.read_csv(test_metapth)
-        self.control_parameters = ContrastiveControlParameters.from_json(
-            load_json_from_file(control_parameter_pth)
-        )
-        print("Dataset Loaded")
-        print(
-            f'''
-            Data Set Contains information from the Following Rules : 
-            {
-                ','.join([r.rule_name for r in self.control_parameters.rules])
-            }
-            '''
-        )
-        # $ DONT load the initial indices from the h5 dataset. 
-        # $ Instead _remake the indices. 
-        self.remake_indices(size)
-    
-    def remake_indices(self,size:int):
-        """remake_indices 
-        This method will rerun the rules on the self.dataset_meta
-        """
-        # $ Make a map of the indices of the ids in the dataset. 
-        index_map = {k.decode('utf-8'): idx for idx,
-                     k in enumerate(self.id_list)}
-        # $ extract the indicies and  
-        contrastive_df_indices , rule_distribution = self._make_indices(self.dataset_meta,size,self.control_parameters.rules)
-        collated_id_indices = collate_indices(
-            self.dataset_meta,
-            contrastive_df_indices,
-            identifier_name= HDF5ContrastiveSetCreator.MAIN_IDENTIFIER_NAME
-        )
-        dataset_indices = map_to_contrastive_indexes_to_ids(
-            collated_id_indices,index_map
-        )
-        self.contrastive_indices = dataset_indices
-        self.indices_rules = rule_distribution
-
-        
-        
-    @staticmethod
-    def _make_indices(dataframe:pandas.DataFrame,size:int,rules:List[SampleContrastingRule]):
-        """_make_indices [summary]
-        Takes a dataframe , runs the list of `SampleContrastingRule`'s to create contrastive indices of a total certain `size`
-        returns : Tuple(all_indices,rule_distribution)
-            - `all_indices` : List[List[int,int]]
-            - `rule_distribution` : List[str] : list where each index corresponds to what rule created that contrastive sample. . 
-        """
-        size_dis = [ 
-            int(size/len(rules))\
-                for _ in range(len(rules))
-        ]
-        all_indices = []
-        rule_distribution = []
-        # $ Use rule to create contrastive indices
-        for size, rule in zip(size_dis, rules):
-            created_indices = rule(dataframe, num_samples_per_rule=size)
-            rule_distribution.extend([rule.rule_name for _ in range(len(created_indices))])
-            all_indices.extend(created_indices)
-
-        return all_indices , rule_distribution
-    
-    @staticmethod
-    def load_sequences(seq):
-        dd = {}
-        for k in seq:
-          dd[k] = np.array(seq[k])
-        return dd
-       
-    def __len__(self):
-        return len(self.contrastive_indices)
-
-    def get_channel_data(self,index):
-        """__getitem__ 
-        returns dictionary of ChannelData
-        """
-        channel_dict = {}
-        for k in self.sequences.keys():
-            mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
-            channel_dict[k] = ChannelData(
-                mask=mask,
-                sequence=torch.from_numpy(self.sequences[k][index]),
-                name=k
-            )
-        return channel_dict
+class RoboTestDataset(SentenceContrastiveDataset):
+    def __init__(self, contrastive_set_generated_folder: str, use_channels=None, size: int=200) -> None:
+        super().__init__(contrastive_set_generated_folder, use_channels=use_channels, train=False, size=size)
 
     def __getitem__(self, idx):
         idx_i,idx_j = self.contrastive_indices[idx]
@@ -199,12 +97,11 @@ class RoboticsTestingDataset(Dataset):
         return TestSetCollateFn()
 
 
-
 def run_test_pipeline(model:LGRRoboRewardLearner,\
                     contrastive_set_generated_folder:str,\
                     batch_size = 20,\
                     size:int=200):
-    dataset = RoboticsTestingDataset(
+    dataset = RoboTestDataset(
         contrastive_set_generated_folder,
         size=size
     )
@@ -268,12 +165,42 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
     return final_dataset_collection
 
 
+
+def plot_test_case_results(test_pipeline_resp,plt_name='robo-reward-dist.pdf',show=False):
+    model_responses = pandas.DataFrame(test_pipeline_resp)
+    dfx = model_responses[['pp_reward','pn_reward','rule','id_pair']]
+    dfx = dfx.rename(columns={'pp_reward':'pos_traj_rw','pn_reward':'neg_traj_rw'})
+    dfy =model_responses[['nn_reward', 'np_reward','rule','id_pair']]
+    dfy = dfx.rename(columns={'nn_reward':'pos_traj_rw','np_reward':'neg_traj_rw'})
+    final_df = pandas.concat((dfx,dfy))
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(30,30))
+    for axis,g in zip(axes,final_df.groupby('rule')):
+        grp_v,grp = g
+        min_t = grp['neg_traj_rw'].min()
+        max_t = grp['pos_traj_rw'].max()
+        bins = np.linspace(min_t,max_t, 10)
+        axis.hist(grp['pos_traj_rw'], bins, alpha=0.5, label=RULE_MAP[grp_v]['pos_traj_rw'])
+        axis.hist(grp['neg_traj_rw'], bins, alpha=0.5, label=RULE_MAP[grp_v]['neg_traj_rw'])
+        axis.legend(loc='upper left',prop={'size': 18})
+        axis.set_xlabel('Rewards')
+        axis.set_ylabel('Num Sent/Traj')
+        axis.set_title(RULE_MAP[grp_v]['plot_title'])
+        for item in ([axis.title, axis.xaxis.label, axis.yaxis.label] +
+                    axis.get_xticklabels() + axis.get_yticklabels()):
+            item.set_fontsize(20)
+    if show:
+        fig.show()
+    fig.savefig(plt_name)
+
+
 def save_test_data(
         model:LGRRoboRewardLearner,\
         logger,
         contrastive_set_generated_folder:str,\
         batch_size = 20,\
         size:int=200,\
+        plt_name='robo-reward-dist.pdf',\
+        show_plot=False,
     ):
     return_object = run_test_pipeline(
         model,
@@ -284,4 +211,6 @@ def save_test_data(
     save_tests = f'{logger.experiment_id}.json'
     save_json_to_file(return_object,save_tests)
     logger.experiment.log_artifact(save_tests)
-    return save_tests
+    plot_test_case_results(return_object,show_plot=show_plot,plt_name=plt_name)
+    logger.experiment.log_artifact(plt_name)
+    # return save_tests

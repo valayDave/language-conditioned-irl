@@ -26,25 +26,27 @@ import os
 import random
 import pandas
 from metaflow import parallel_map
+import gc
+import logging
 from .dataset import MAX_TRAJ_LEN,\
     USE_CHANNELS,\
     IMAGE_SIZE,\
     MAX_TEXT_LENGTH,\
     DISCRETE_CHANNELS,\
-    load_json_from_file,\
-    save_json_to_file,\
     MAX_TRAJ_LEN,\
     is_present,\
     GROUPNAMES,\
-    get_padding,\
-    RoboDataUtils,\
     DemonstrationsDataset,\
     CONTRASTIVE_HDF5_DATASET_NAME_MAIN_DEMO,\
     CONTRASTIVE_HDF5_DATASET_NAME_CACHE_INDICES,\
     collate_indices,\
     map_to_contrastive_indexes_to_ids
-import gc
-import logging
+
+from .utils import \
+    RoboDataUtils,\
+    load_json_from_file,\
+    save_json_to_file,\
+
 
 
 class HDF5ContrastiveSetCreator:
