@@ -80,7 +80,7 @@ class TestSetCollateFn(ContrastiveCollateFn):
 
 
 class RoboTestDataset(SentenceContrastiveDataset):
-    def __init__(self, contrastive_set_generated_folder: str, use_channels=None, size: int=200) -> None:
+    def __init__(self, contrastive_set_generated_folder: str, use_channels=USE_CHANNELS, size: int=200) -> None:
         super().__init__(contrastive_set_generated_folder, use_channels=use_channels, train=False, size=size)
 
     def __getitem__(self, idx):
@@ -103,7 +103,8 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
                     size:int=200):
     dataset = RoboTestDataset(
         contrastive_set_generated_folder,
-        size=size
+        size=size,\
+        use_channels=USE_CHANNELS,\
     )
     testing_loader = DataLoader(dataset,batch_size=batch_size,collate_fn=dataset.collate_fn())
     final_dataset_collection = []

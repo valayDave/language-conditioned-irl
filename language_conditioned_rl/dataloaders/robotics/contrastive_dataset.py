@@ -78,7 +78,8 @@ class SentenceContrastiveDataset(Dataset):
                     folder_pth:str,\
                     size:int,\
                     use_original_contrastive_indices=True,\
-                    use_channels=USE_CHANNELS,train=True):
+                    use_channels=USE_CHANNELS,\
+                    train=True):
         prefix = HDF5ContrastiveSetCreator.TRAIN_PREFIX if train else HDF5ContrastiveSetCreator.TEST_PREFIX
         metapth = os.path.join(\
             folder_pth,\
