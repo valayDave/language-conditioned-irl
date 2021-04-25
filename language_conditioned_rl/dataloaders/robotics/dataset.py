@@ -279,6 +279,8 @@ class ContrastiveSampleGeneratedDataset(Dataset):
         dd = {}
         for k in channels:
             assert mask or k in seq.keys(), f"Channel {k} not found in the HDF5 Dataset Sequence"
+            if k not in seq.keys():
+                continue
             dd[k] = np.array(seq[k])
         return dd
        
