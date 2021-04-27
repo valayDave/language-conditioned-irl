@@ -5,3 +5,4 @@ neptune-client
 neptune-contrib
 moviepy
 h5py
+gym

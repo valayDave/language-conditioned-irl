@@ -4,34 +4,36 @@
 # Running RL Training
 ```python
 # coding: utf-8
-from language_conditioned_rl.models.reward_model import LGRBehaviouralDiffLearnerInference
-from language_conditioned_rl.models.rl_trainer import Trainer,DEFAULT_LOGGER_PROJECT_NAME,DEFAULT_EXPERIMENT_NAME
+# coding: utf-8
+from language_conditioned_rl.models.reward_model import LGROmniChannelPureContrastiveRewardLearner
+from language_conditioned_rl.models.rl_trainer import MountainCarTrainer,\
+                                                    MOUNTAINCAR_DEFAULT_LOGGER_PROJECT_NAME,\
+                                                    MOUNTAINCAR_DEFAULT_EXPERIMENT_NAME
 REWARD_FN_PROJECT_NAME = 'valay/Language-Grounded-Rewards'
-REWARD_FN_EXPERIMENT_NAME = 'LAN-21'
-CHECKPOINT_PATH = 'checkpoints/epoch=12-val_loss=0.98.ckpt'
+REWARD_FN_EXPERIMENT_NAME = 'LAN-114'
+CHECKPOINT_PATH = 'checkpoints/epoch=01-val_loss=0.00.ckpt'
 API_TOKEN = "<NEPTUNE_API_TOKEN>"
 CHOSEN_TEXT = "The car is able to reach the top of the mountain"
 # Instantiate Reward Function
-REWARD_FN,config = LGRBehaviouralDiffLearnerInference.from_neptune(REWARD_FN_PROJECT_NAME,REWARD_FN_EXPERIMENT_NAME,CHECKPOINT_PATH,api_token=API_TOKEN)
-
+REWARD_FN,config = LGROmniChannelPureContrastiveRewardLearner.from_neptune(REWARD_FN_PROJECT_NAME,REWARD_FN_EXPERIMENT_NAME,CHECKPOINT_PATH,api_token=API_TOKEN)
 # Run RL training with Text bound reward function. 
-trainer = Trainer(
+trainer = MountainCarTrainer(
     text_context=CHOSEN_TEXT,
-    num_eps=10000,
+    num_eps=1000,
     model_hidden=256,\
     num_timesteps=200,\
     reward_scaleup=100,\
-    project_name=DEFAULT_LOGGER_PROJECT_NAME,\
-    experiment_name=DEFAULT_EXPERIMENT_NAME,\
-    api_token=None,\
+    project_name=MOUNTAINCAR_DEFAULT_LOGGER_PROJECT_NAME,\
+    experiment_name=MOUNTAINCAR_DEFAULT_EXPERIMENT_NAME,\
+    api_token=API_TOKEN,\
     video_save_freq=200,\
     video_save_dir='./video',\
     log_every=100,\
-    reward_min=-4,\
-    reward_max=4,\
+    reward_min=-12,\
+    reward_max=12,\
 )
 
-trainer.run(REWARD_FN)
+trainer.run(REWARD_FN,render=True)
 ```
 
 # Core Credits: 
@@ -40,7 +42,7 @@ trainer.run(REWARD_FN)
 2. https://arxiv.org/abs/2009.01325
 3. https://github.com/huggingface/transformers/tree/master/src/transformers
 4. https://github.com/lucidrains/vit-pytorch/blob/main/vit_pytorch/vit_pytorch.py
-5. 
+5. https://github.com/ZhiqingXiao/OpenAIGymSolution/tree/master/MountainCar-v0
 
 
 # Model Docs 
