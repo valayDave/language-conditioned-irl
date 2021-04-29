@@ -22,11 +22,10 @@ def create_logger(logger_name:str,level=logging.INFO):
     return custom_logger
 
 def make_logger(logger_name:str,level=logging.INFO):
-    if GLOBAL_LOGGER is None:
+    global GLOBAL_LOGGER
+    if  GLOBAL_LOGGER is None:
         GLOBAL_LOGGER = create_logger(logger_name,level=level)
-    else:
-        return GLOBAL_LOGGER
-
+    return GLOBAL_LOGGER
 
 class Trainer:
     def __init__(self,\
