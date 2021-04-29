@@ -10,7 +10,7 @@ CHOSEN_TEXT = "The car is able to reach the top of the mountain"
 DEFAULT_LOGGER_PROJECT_NAME = 'valay/Langauge-Grounded-Reward-RL-Implementation'
 DEFAULT_EXPERIMENT_NAME = 'SARSA-Tiling-Rw-Fn'
 
-
+GLOBAL_LOGGER = None
 
 def create_logger(logger_name:str,level=logging.INFO):
     custom_logger = logging.getLogger(logger_name)
@@ -20,6 +20,12 @@ def create_logger(logger_name:str,level=logging.INFO):
     custom_logger.addHandler(ch1)
     custom_logger.setLevel(level)    
     return custom_logger
+
+def make_logger(logger_name:str,level=logging.INFO):
+    if GLOBAL_LOGGER is None:
+        GLOBAL_LOGGER = create_logger(logger_name,level=level)
+    else:
+        return GLOBAL_LOGGER
 
 
 class Trainer:
@@ -110,7 +116,7 @@ class Trainer:
         env = get_env(video_save_dir=self.video_save_dir,episode_save_freq=self.video_save_freq)
         # $ Create new Agent And Start the Episode.
         agent = SARSALambdaAgent(env)
-        logger = create_logger(self.experiment_name)
+        logger = make_logger(self.experiment_name)
         if seed is not None:
             env.seed(seed=seed)
 
@@ -183,7 +189,7 @@ class Trainer:
         env = get_env(video_save_dir=self.video_save_dir,episode_save_freq=self.video_save_freq)
         # $ Create new Agent And Start the Episode.
         agent = SARSALambdaAgent(env)
-        logger = create_logger(self.experiment_name)
+        logger = make_logger(self.experiment_name)
         if seed is not None:
             env.seed(seed=seed)
         try:
