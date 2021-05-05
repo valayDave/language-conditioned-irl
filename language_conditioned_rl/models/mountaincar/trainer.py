@@ -84,7 +84,7 @@ class Trainer:
 
 
     def run_episode(self,env:gym.Env,agent:SARSALambdaAgent,render:bool=False):
-        traj_tuples ,states ,actions = [],[],[]
+        traj_tuples ,states ,actions,rewards = [],[],[],[]
         observation = env.reset()
         # $ Run Loop Over Timesteps
         for t in range(self.num_timesteps):
@@ -94,14 +94,15 @@ class Trainer:
             st1, reward, done, info = env.step(at)
             if render:
                 env.render()
+            rewards.append(reward)
             traj_tuples.append((observation, at, st1, done))
             if done:
                 break
             observation = st1
-        return traj_tuples ,states ,actions
+        return traj_tuples ,states ,actions,rewards
 
 
-    def run(self,reward_fn:LGRMountainCarInferenceMixin,render:bool=False,seed:int=None,text_context:str=CHOSEN_TEXT):
+    def run(self,reward_fn:LGRMountainCarInferenceMixin,render:bool=False,seed:int=None,text_context:str=CHOSEN_TEXT,agent=None,train=True):
         import neptune
         config = self.get_core_config(reward_fn,text_context=text_context)
         # $ Create Logger. 
@@ -110,11 +111,15 @@ class Trainer:
         else:
             neptune.init(self.project_name,backend=neptune.OfflineBackend())
 
-        neptune.create_experiment(name=self.experiment_name, params=config)
+        exp_name = f'LearnedReward-{self.experiment_name}'
+        if not train:
+            exp_name = f'{exp_name}-test'
+        neptune.create_experiment(name=exp_name, params=config)
         # $ Gets Mountain Car environment. 
         env = get_env(video_save_dir=self.video_save_dir,episode_save_freq=self.video_save_freq)
         # $ Create new Agent And Start the Episode.
-        agent = SARSALambdaAgent(env)
+        if agent is None:
+            agent = SARSALambdaAgent(env)
         logger = make_logger(self.experiment_name)
         if seed is not None:
             env.seed(seed=seed)
@@ -122,7 +127,7 @@ class Trainer:
         try:
             for e in range(self.num_eps):
                 # $ run the episode 
-                traj_tuples ,states ,actions = self.run_episode(env,agent,render=render)
+                traj_tuples ,states ,actions,gym_rewards = self.run_episode(env,agent,render=render)
                 # $ Get the rewards from Trajectory. 
                 reward = reward_fn.get_rewards(states, actions, text_context)
                 # $ Normalize and Ammortize the rws
@@ -137,8 +142,13 @@ class Trainer:
                     next_act = None
                     if idx < len(traj_tuples)-1:
                         next_act = traj_tuples[idx+1][1]
-                    agent.learn(observation, at, rw.item(),st1, done, action_next=next_act)
+                    if train:
+                        agent.learn(observation, at, rw.item(),st1, done, action_next=next_act)
+                
+                neptune.log_metric('is_success',e,y=self.is_success(states[-1][0],sum(gym_rewards)))
                 neptune.log_metric('reward', e, y=reward)
+                neptune.log_metric('gym_reward',e,y=sum(gym_rewards))
+
                 if e % self.log_every == 0:
                     logger.info(f'Completed Episode {e} With Reward {reward}')
         except KeyboardInterrupt as e:
@@ -152,7 +162,13 @@ class Trainer:
         if self.video_save_dir:
             neptune.log_artifact(self.video_save_dir)
         neptune.stop()
+        return agent
 
+    def is_success(self,last_state,total_rw):
+        success = False
+        if total_rw > -200:
+            success = True
+        return success
     
     def play_sarsa_native(self,env:gym.Env,agent:SARSALambdaAgent,render:bool=False,train:bool=True):
         episode_reward = 0
@@ -171,10 +187,10 @@ class Trainer:
             if train:
                 agent.learn(observation, action, reward, observation_next, done, action_next)
             observation, action = observation_next, action_next
-        return episode_reward
+        return episode_reward, observation
         
 
-    def run_native(self,train=True,render=False,seed:int=None):
+    def run_native(self,train=True,render=False,seed:int=None,agent=None):
         import neptune
         config = self.get_core_config(None,)
         # $ Create Logger. 
@@ -182,19 +198,24 @@ class Trainer:
             neptune.init(self.project_name,api_token=self.api_token)
         else:
             neptune.init(self.project_name,backend=neptune.OfflineBackend())
-
-        neptune.create_experiment(name=self.experiment_name, params=config)
+        
+        exp_name = f'GymNative-{self.experiment_name}'
+        if not train:
+            exp_name = f'{exp_name}-test'
+        neptune.create_experiment(name=exp_name, params=config)
         # $ Gets Mountain Car environment. 
         env = get_env(video_save_dir=self.video_save_dir,episode_save_freq=self.video_save_freq)
         # $ Create new Agent And Start the Episode.
-        agent = SARSALambdaAgent(env)
+        if agent is None:
+            agent = SARSALambdaAgent(env)
         logger = make_logger(self.experiment_name)
         if seed is not None:
             env.seed(seed=seed)
         try:
             for e in range(self.num_eps):
-                episodereward = self.play_sarsa_native(env,agent,render=render,train=train)
+                episodereward,obs = self.play_sarsa_native(env,agent,render=render,train=train)
                 neptune.log_metric('reward', e, y=episodereward)
+                neptune.log_metric('is_success',e,y=self.is_success(obs[0],episodereward))
                 if e % self.log_every == 0:
                     logger.info(f'Completed Episode {e} With Reward {episodereward}')
 
@@ -204,9 +225,10 @@ class Trainer:
             if self.video_save_dir:
                 neptune.log_artifact(self.video_save_dir)
             neptune.stop()
-            return 
+            return agent
         
         env.close()
         if self.video_save_dir:
             neptune.log_artifact(self.video_save_dir)
         neptune.stop()
+        return agent

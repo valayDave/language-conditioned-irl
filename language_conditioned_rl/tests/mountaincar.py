@@ -456,10 +456,10 @@ class TextRewardTestCase(IndividualObjTestcase):
 
 def single_object_reference_results(rw_model,test_data_frame,tokenizer=None):
     test_objects = [
-        TrajectoryFixedDifferentSentenceTestCase(sample_size=2,tokenizer=tokenizer),\
+        TrajectoryFixedDifferentSentenceTestCase(sample_size=28,tokenizer=tokenizer),\
         TrajectoryFixedSynonymsTestCase(sample_size=1,tokenizer=tokenizer),\
         TrajectoryFixedSemanticSimilarTestCase(sample_size=1,tokenizer=tokenizer),\
-        TextRewardTestCase(sample_size=4,tokenizer=tokenizer),\
+        TextRewardTestCase(sample_size=28,tokenizer=tokenizer),\
     ]
     return_data = []
     for proc_obj in test_objects:
