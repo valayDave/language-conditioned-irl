@@ -1,11 +1,35 @@
 import pytorch_lightning as pl 
 import torch
 import torch.nn as nn
-from typing import List
+from typing import List, Tuple
 from ...dataloaders.channel import ContrastiveGenerator,ChannelData
-from ..transformer import OmniTransformerCoreConfig,OmniChannelTransformer
-from ..reward_model import DataAndOptimizerConf,RewardHeadWithOnlyBackbone
+from ..transformer import \
+    OmniTransformerCoreConfig,\
+    OmniChannelTransformer,\
+    ChannelConfiguration,\
+    VideoPatchEmbedding,\
+    ImagePatchEmbedding,\
+    ChannelEmbeddingDiscrete,\
+    TextEmbeddingsPretrain,\
+    DEFAULT_OMNI_TRANSFORMER_PARAMS
 
+from ..reward_model import DataAndOptimizerConf,RewardHeadWithOnlyBackbone
+from ...dataloaders.robotics.dataset import CONTINOUS_VALUE_DIMS
+
+DISCRETE_EMBEDDING_SIZE = 128
+PATCH_SIZE=64
+PATCH_EMBEDDING_DIMS = 128
+IMAGE_SIZE = (256,256)
+
+
+USE_CHANNELS = [
+  # 'joint_gripper_velocity',
+  # 'joint_robot_velocity',
+  'joint_robot_position',
+  'image_sequence',
+  'text',
+  'joint_gripper',
+]
 class LGRRoboRewardLearner(pl.LightningModule):
   def __init__(self,
                config:OmniTransformerCoreConfig,
@@ -136,3 +160,156 @@ class LGRRoboRewardLearner(pl.LightningModule):
         optimizer, warmup, t_total, num_cycles=num_cycles)
     return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
+
+def make_model(
+  use_channels = USE_CHANNELS,\
+  CORE_TRANSFORMER_PARAMETERS = DEFAULT_OMNI_TRANSFORMER_PARAMS,\
+  dataparams:DataAndOptimizerConf = DataAndOptimizerConf(),\
+  channel_embed_size:int = DISCRETE_EMBEDDING_SIZE,\
+  patch_embed_size:int = PATCH_EMBEDDING_DIMS,\
+  patch_size:int=PATCH_SIZE,\
+  image_size:Tuple[int,int] = IMAGE_SIZE,\
+):
+  video_channel = ChannelConfiguration(
+    name='image_sequence',
+    channel_type='continous',
+    input_dim=None,
+    embedding_layer = VideoPatchEmbedding(image_size[0],patch_size,embedding_size=patch_embed_size),
+    use_position_embed = True,
+    embedding_size = channel_embed_size,
+    no_embedding=False,
+  )
+  image_channel = ChannelConfiguration(
+    name='image',
+    channel_type='continous',
+    input_dim=None,
+    embedding_layer = ImagePatchEmbedding(image_size[0],patch_size,embedding_size=patch_embed_size),
+    use_position_embed = True,
+    embedding_size = channel_embed_size,
+    no_embedding=False,
+  )
+  joint_gripper_channel = ChannelConfiguration(
+      name='joint_gripper',
+      channel_type='discrete',
+      input_dim=channel_embed_size,
+      embedding_layer = ChannelEmbeddingDiscrete(4,embedding_size=channel_embed_size),
+      use_position_embed = True,
+      embedding_size = channel_embed_size,
+  )
+
+  joint_gripper_velocity_channel = ChannelConfiguration(
+      name='joint_gripper_velocity',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['joint_gripper_velocity'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+  joint_robot_position_channel = ChannelConfiguration(
+      name='joint_robot_position',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['joint_robot_position'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+  joint_robot_velocity_channel = ChannelConfiguration(
+      name='joint_robot_velocity',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['joint_robot_velocity'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+  tcp_angular_veloctiy_channel = ChannelConfiguration(
+      name='tcp_angular_veloctiy',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_angular_veloctiy'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+  tcp_linear_velocity_channel = ChannelConfiguration(
+      name='tcp_linear_velocity',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_linear_velocity'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+  tcp_target_position_channel = ChannelConfiguration(
+      name='tcp_target_position',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_target_position'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+
+  tcp_orientation_channel = ChannelConfiguration(
+      name='tcp_orientation',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_orientation'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+
+  tcp_position_channel = ChannelConfiguration(
+      name='tcp_position',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_linear_velocity'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+
+  tcp_target_orientation_channel = ChannelConfiguration(
+      name='tcp_target_orientation',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_target_orientation'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+
+  txt_emb_layer = TextEmbeddingsPretrain(is_learnable=False)
+  text_channel = ChannelConfiguration(
+      name='text',
+      channel_type='discrete',
+      input_dim=None,
+      embedding_size=txt_emb_layer.embeddings.embedding_dim,
+      no_embedding=False,
+      embedding_layer = txt_emb_layer,
+      use_position_embed=True,
+  )
+  # USE_CHANNEL_CONFIG 
+  FILTER_CHANNELS = [
+    joint_gripper_channel,
+    joint_robot_position_channel,
+    joint_robot_velocity_channel,
+    video_channel
+  ]
+  for f in FILTER_CHANNELS:
+    f.route_to_everything = False
+    f.restricted_channels = ['text']
+ 
+  channel_configurations = [
+      video_channel,
+      text_channel,
+      joint_gripper_channel,
+      joint_gripper_velocity_channel,
+      joint_robot_position_channel,
+      joint_robot_velocity_channel,
+      tcp_angular_veloctiy_channel,
+      tcp_linear_velocity_channel,
+      tcp_target_position_channel,
+      tcp_orientation_channel,
+      tcp_position_channel,
+      tcp_target_orientation_channel,
+      image_channel
+  ]
+  channel_configurations = [config for config in channel_configurations if config.name in use_channels]
+  transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMETERS,channel_configurations=channel_configurations)
+  trans = LGRRoboRewardLearner(transformer_config,data_params=dataparams)
+  return trans

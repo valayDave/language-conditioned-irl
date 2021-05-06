@@ -475,6 +475,20 @@ class ChannelEmbeddingContinous(nn.Module):
     def forward(self, channel_seq):
         return self.embeddings(channel_seq)
 
+class VideoPatchEmbedding(nn.Module):
+    def __init__(self, image_size, patch_size, embedding_size=128, channels=3):
+        super().__init__()
+        assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
+        num_patches = (image_size // patch_size) ** 2
+        patch_dim = channels * patch_size ** 2
+        self.to_patch_embedding = nn.Sequential(
+            Rearrange('b f c (h p1) (w p2) -> b (f h w) (p1 p2 c)',
+                      p1=patch_size, p2=patch_size),
+            nn.Linear(patch_dim, embedding_size),
+        )
+
+    def forward(self, image):
+        return self.to_patch_embedding(image)
 
 class ImagePatchEmbedding(nn.Module):
     """ImagePatchEmbedding [summary]

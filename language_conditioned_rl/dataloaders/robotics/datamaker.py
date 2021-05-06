@@ -34,6 +34,7 @@ from .dataset import MAX_TRAJ_LEN,\
     MAX_TEXT_LENGTH,\
     DISCRETE_CHANNELS,\
     MAX_TRAJ_LEN,\
+    MAX_VIDEO_FRAMES,\
     is_present,\
     GROUPNAMES,\
     DemonstrationsDataset,\
@@ -77,10 +78,12 @@ def create_logger(logger_name: str, level=logging.INFO):
 def get_hd5_base_sizes(img_size=IMAGE_SIZE,
                        batch_size=None,
                        max_traj_len=MAX_TRAJ_LEN,
-                       max_txt_len=MAX_TEXT_LENGTH
+                       max_txt_len=MAX_TEXT_LENGTH,
+                       max_video_frames = MAX_VIDEO_FRAMES,
                        ):
     return {
         'image': (batch_size, 3, *img_size),
+        'image_sequence': (batch_size,max_video_frames, 3, *img_size),
         'joint_gripper': (batch_size, max_traj_len),
         'joint_gripper_velocity': (batch_size, max_traj_len, 1),
         'joint_robot_position': (batch_size, max_traj_len, 6),
@@ -128,6 +131,7 @@ def get_hd5_dtypes():
         'tcp_target_orientation': 'f',
         'tcp_target_position': 'f',
         'text': 'i',
+        'image_sequence':'f',
     }
 
 
@@ -157,7 +161,7 @@ class H5DataCreatorMainDataCreator:
         self.chunk_size = chunk_size
         self.use_channels = use_channels
         self.final_id_list = []
-
+    
     def build(self):
         self.logger = create_logger(self.__class__.__name__)
         for json_pth in self.sample_pths:
@@ -256,6 +260,72 @@ class H5DataCreatorMainDataCreator:
         # self.final_id_list.extend(id_list)
         return True
 
+class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
+
+    META_EXTRACTION_KEYS = [
+        'phase',
+        'ints',
+        'voice',
+        'target/id',
+        'target/type',
+        'amount',
+        'main_name'
+    ]
+    
+    def decompress_json(self, data, key):
+        cache_val = json.loads(zlib.decompress(base64.b64decode(data)))
+        cache_val['main_name'] = key
+        return cache_val
+
+    def load_and_decompress(self,json_pth):
+        loaded_obj = load_json_from_file(json_pth)
+        file_name = json_pth.split('/')[-1].split('.json')[0]
+        decompressed_object = self.decompress_json(list(loaded_obj.values())[0], file_name)
+        return decompressed_object
+
+    @staticmethod
+    def _make_list_chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    def _make_metadf(self,decomp_objs):
+        data_df = pandas.DataFrame(decomp_objs)
+        data_df = data_df[self.META_EXTRACTION_KEYS]
+        data_df['num_cups'] = data_df['ints'].apply(lambda x:x[1])
+        data_df['num_bowls'] = data_df['ints'].apply(lambda x:x[0])
+        data_df['comes_from'] = data_df['main_name']
+        return data_df
+    
+    
+    def build(self,chunk_size=20):
+        self.logger = create_logger(self.__class__.__name__)
+        file_chunks = self._make_list_chunks(self.sample_pths,chunk_size)
+        main_meta_df = []
+        for idx,json_pth_chunk in enumerate(file_chunks):
+
+            decompressd_objects = parallel_map(lambda x : self.load_and_decompress(x),json_pth_chunk)
+            self.logger.info(f"Completed Loading Path Chunk {idx}")
+            # Make the Chunked Tensors from this
+            object_tuple = self.roboutils.make_saveable_chunk(decompressd_objects)
+            sequence_dict, mask_dict, id_list = object_tuple
+            if self.hf is None:
+                self._create_core_structures(sequence_dict, mask_dict, id_list)
+            else:
+                self._append_to_file(sequence_dict, mask_dict, id_list)
+            main_meta_df.append(
+                self._make_metadf(decompressd_objects)
+            )
+            del decompressd_objects
+            del object_tuple
+            gc.collect()
+        self.close()
+        concat_df = pandas.concat(main_meta_df)
+        concat_df.to_csv(
+            f'{self.file_name}.meta.csv'
+        )
+
+
 
 class SampleContrastingRule(metaclass=abc.ABCMeta):
     """SampleContrastingRule 
@@ -338,6 +408,8 @@ class ContrastingObjectRule(SampleContrastingRule):
             # sets contains the lists of list. Each item in sets is a list of indexes with a specific target_id
             for i in range(int(num_samples_per_rule/num_top_type_grp)):
                 # Select any two group of indexes with different target_id
+                if len(sets) < 2:
+                    continue
                 set0, set1 = random.sample(sets, 2)
                 # Select any two indexes from the selected group of indexes.
                 all_idxs.append((random.choice(set0), random.choice(set1)))
@@ -479,7 +551,7 @@ class HDF5ContrastiveSetCreator:
     """
 
     INIT_META_COLUMNS = [
-        'name',
+        'main_name',
         'phase',
         'ints',
         'num_bowls',
@@ -492,7 +564,6 @@ class HDF5ContrastiveSetCreator:
     ]
 
     MAPPING_COLUMNS = {
-        'name': 'chunk_name',
         'phase': 'demo_type',
         'ints': 'object_meta',
         'num_bowls': 'num_bowls',
@@ -538,6 +609,7 @@ class HDF5ContrastiveSetCreator:
         assert is_present(metafile_path)
         assert is_present(core_demostrations_hdf5pth)
         metadf = pandas.read_csv(metafile_path)
+        print(set(self.INIT_META_COLUMNS) - set(metadf.columns))
         assert set(self.INIT_META_COLUMNS).issubset(metadf.columns)
         self.metadf: pandas.DataFrame = metadf.rename(
             columns=self.MAPPING_COLUMNS)

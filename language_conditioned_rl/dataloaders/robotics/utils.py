@@ -5,10 +5,12 @@ import json
 import numpy as np
 import pandas
 import zlib
+import random
 from typing import List
 from .dataset import \
     IMAGE_SIZE,\
     MAX_TRAJ_LEN,\
+    MAX_VIDEO_FRAMES,\
     MAX_TRAJ_LEN,\
     USE_CHANNELS,\
     MAX_TEXT_LENGTH,\
@@ -118,6 +120,20 @@ class RoboDataUtils:
         resized_img_tensor = self.resize_compose(img)
         return resized_img_tensor
 
+    def make_tensor_from_video(self, video_arr,max_frames=MAX_VIDEO_FRAMES):
+        # TODO : Make Video Tensor Here. 
+        # for img in video_arr:
+        print("Number Of Frames : ",len(video_arr))
+        sample_frames = random.sample(list(range(len(video_arr))),max_frames)
+        video_frames = []
+        for img_idx in sample_frames:
+            image_arr = np.asarray(video_arr[img_idx], dtype=np.uint8)[:, :, ::-1]
+            img = Image.fromarray(image_arr, 'RGB')
+            resized_img_tensor = self.resize_compose(img)
+            video_frames.append(resized_img_tensor)
+        video_tensor = torch.stack(video_frames)
+        return video_tensor
+
     @staticmethod
     def make_mask_from_len(len_tensor, max_size):
         '''
@@ -174,19 +190,25 @@ class RoboDataUtils:
             'main_name'
         ]
         assert len([k for k in required_keys if k in robo_data_dict]
-                   ) == len(required_keys)
+                   ) == len(required_keys),f"These Keys are Required {', '.join(required_keys)} for the Object"
         traj_data_dict = self.create_trajectory(
             robo_data_dict['state/dict'], use_channels=self.use_channels)
         text_ids, txt_msk = self.encode_sentence(robo_data_dict['voice'])
         image_tensor = self.make_tensor_from_image(robo_data_dict['image'])
+        video_data = {}
+        if 'image_sequence' in robo_data_dict:
+            video_tensor = self.make_tensor_from_video(robo_data_dict['image_sequence'])
+            video_data['image_sequence'] = video_tensor
 
         input_sequence_dict = dict(
             image=image_tensor,
             text=text_ids,
-            state=traj_data_dict
+            state=traj_data_dict,
+            **video_data
         )
         mask_dict = dict(
             image=None,
+            image_sequence=None,
             text=txt_msk,
             state={k: None for k in traj_data_dict}
         )
@@ -208,7 +230,12 @@ class RoboDataUtils:
         text_msk_tensor = torch.stack([msk_dict['text'] for msk_dict in masks])
         image_tensor = torch.stack([seq_dict['image']
                                     for seq_dict in sequences])
-
+        video_data = {}
+        if 'image_sequence' in robo_data_dicts[0]:
+            video_tensor = torch.stack([seq_dict['image_sequence']
+                                    for seq_dict in sequences])
+            video_data['image_sequence'] = video_tensor
+    
         # Mask state Tensors for this.
         # all sequences will be padded which are non text and mask is created.
         state_dict = dict()
@@ -223,10 +250,12 @@ class RoboDataUtils:
         input_sequence_dict = dict(
             image=image_tensor,
             text=text_ten,
+            **video_data,
             **state_dict
         )
         mask_dict = dict(  # Normalized to ensure H5DataCreatorMainDataCreator works well
             image=None,
+            image_sequence = None,
             text=text_msk_tensor,
             **state_mask_dict
         )

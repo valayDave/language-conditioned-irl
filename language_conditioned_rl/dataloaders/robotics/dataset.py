@@ -24,7 +24,9 @@ PATCH_SIZE = 32
 PATCH_EMBEDDING_DIMS = 128
 
 # Configuration for Dataset size
-MAX_TRAJ_LEN = 500
+MAX_TRAJ_LEN = 800
+
+MAX_VIDEO_FRAMES = 8
 
 
 CONTRASTIVE_HDF5_DATASET_NAME = 'contrastive_ids'
@@ -61,6 +63,7 @@ DISCRETE_CHANNELS = {
 }
 NO_PAD_CHANNELS = {
     'image': True,
+    'image_sequence':True,
 }
 
 ALL_CHANNELS = [
@@ -76,12 +79,13 @@ ALL_CHANNELS = [
     'image',
     'text',
     'joint_gripper',
+    'image_sequence',
 ]
 USE_CHANNELS = [
     # 'joint_gripper_velocity',
     'joint_robot_position',
     'joint_robot_velocity',
-    'image',
+    'image_sequence',
     'text',
     'joint_gripper',
 ]
