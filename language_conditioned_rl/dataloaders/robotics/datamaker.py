@@ -367,7 +367,7 @@ class SampleContrastingRule(metaclass=abc.ABCMeta):
         filter_df = metadf[column_name]
         return_pairs =[]
         for idxtup in contrasiting_indices:
-            return_pairs.append(filter_df.iloc[idxtup[0]],filter_df.iloc[idxtup[1]])
+            return_pairs.append((filter_df.iloc[idxtup[0]],filter_df.iloc[idxtup[1]]))
         return return_pairs
 
 
