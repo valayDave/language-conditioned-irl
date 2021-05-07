@@ -361,6 +361,15 @@ class SampleContrastingRule(metaclass=abc.ABCMeta):
     def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
         raise NotImplementedError()
 
+    def get_contrasting_attribute_pairs(self,metadf: pandas.DataFrame,column_name:str,num_samples_per_rule: int = 100):
+        assert column_name in metadf.columns
+        contrasiting_indices = self(metadf,num_samples_per_rule=num_samples_per_rule)
+        filter_df = metadf[column_name]
+        return_pairs =[]
+        for idxtup in contrasiting_indices:
+            return_pairs.append(filter_df.iloc[idxtup[0]],filter_df.iloc[idxtup[1]])
+        return return_pairs
+
 
 class ContrastingActionsRule(SampleContrastingRule):
     """ContrastingActionsRule 
