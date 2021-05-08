@@ -174,7 +174,7 @@ def plot_test_case_results(test_pipeline_resp,plt_name='robo-reward-dist.pdf',sh
     dfy =model_responses[['nn_reward', 'np_reward','rule','id_pair']]
     dfy = dfx.rename(columns={'nn_reward':'pos_traj_rw','np_reward':'neg_traj_rw'})
     final_df = pandas.concat((dfx,dfy))
-    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(30,30))
+    fig, axes = plt.subplots(nrows=len(final_df.groupby('rule')), ncols=1, figsize=(30,30))
     for axis,g in zip(axes,final_df.groupby('rule')):
         grp_v,grp = g
         min_t = grp['neg_traj_rw'].min()

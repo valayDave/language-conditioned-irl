@@ -91,7 +91,8 @@ class LGRRoboRewardLearner(pl.LightningModule):
 
   def on_pretrain_routine_start(self) -> None:
     # Put Main Embeddings On CPU
-    self.model.text__embedding.embeddings.to(torch.device('cpu'))
+    if getattr(self.model.text__embedding,'embedding',None) is not None:
+      self.model.text__embedding.embeddings.to(torch.device('cpu'))
 
   # state,action should be full trajectory sequences for state and action for each element in the batch.
   def forward(self,input_channels: List[ChannelData],return_attentions=False):
