@@ -205,7 +205,7 @@ def save_test_data(
     ):
     return_object = run_test_pipeline(
         model,
-        dataset = None,
+        dataset = dataset,
         batch_size=batch_size,
         use_channels=use_channels
     )
