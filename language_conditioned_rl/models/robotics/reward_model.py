@@ -11,7 +11,8 @@ from ..transformer import \
     ImagePatchEmbedding,\
     ChannelEmbeddingDiscrete,\
     TextEmbeddingsPretrain,\
-    DEFAULT_OMNI_TRANSFORMER_PARAMS
+    DEFAULT_OMNI_TRANSFORMER_PARAMS,\
+    PRETRAINED_MODEL
 
 from ..reward_model import DataAndOptimizerConf,RewardHeadWithOnlyBackbone
 from ...dataloaders.robotics.dataset import CONTINOUS_VALUE_DIMS
@@ -30,6 +31,48 @@ USE_CHANNELS = [
   'text',
   'joint_gripper',
 ]
+
+GLOBAL_EMBEDDINGS = None
+
+def set_global_embed(embed_layer):
+  global GLOBAL_EMBEDDINGS
+  GLOBAL_EMBEDDINGS = embed_layer
+
+def make_embedding(tensor):
+  global GLOBAL_EMBEDDINGS
+  if GLOBAL_EMBEDDINGS is None:
+    raise Exception("Global Embeddings Don't Exist!")
+
+  if GLOBAL_EMBEDDINGS.weight.device != tensor.device:
+      z = tensor.to(GLOBAL_EMBEDDINGS.weight.device)
+      return GLOBAL_EMBEDDINGS(z).to(tensor.device)
+  else:
+      return GLOBAL_EMBEDDINGS(tensor)
+
+
+class DetachedTextEmbeddingsPretrain(nn.Module):
+  
+  def __init__(self,pretrain_model=PRETRAINED_MODEL):
+      super().__init__()
+      from transformers import AutoModel
+      bert_model = AutoModel.from_pretrained(pretrain_model)
+      bert_emb = bert_model.embeddings.word_embeddings
+      text_embedding_dim = bert_emb.embedding_dim
+      num_emb = bert_emb.num_embeddings
+      # self.is_learnable=is_learnable
+      embeddings = nn.Embedding(
+          num_embeddings=num_emb, embedding_dim=text_embedding_dim)
+      embeddings.load_state_dict(bert_emb.state_dict())
+      embeddings.weight.requires_grad = False
+      set_global_embed(embeddings)
+      
+    
+  def forward(self, channel_seq):
+    return make_embedding(channel_seq)
+      
+
+
+
 class LGRRoboRewardLearner(pl.LightningModule):
   def __init__(self,
                config:OmniTransformerCoreConfig,
@@ -173,6 +216,7 @@ def make_model(
   patch_embed_size:int = PATCH_EMBEDDING_DIMS,\
   patch_size:int=PATCH_SIZE,\
   image_size:Tuple[int,int] = IMAGE_SIZE,\
+  detached_text_embed:bool=False,\
 ):
   video_channel = ChannelConfiguration(
     name='image_sequence',
@@ -284,7 +328,7 @@ def make_model(
       input_dim=None,
       embedding_size=txt_emb_layer.embeddings.embedding_dim,
       no_embedding=False,
-      embedding_layer = txt_emb_layer,
+      embedding_layer = txt_emb_layer if not detached_text_embed else DetachedTextEmbeddingsPretrain(),
       use_position_embed=True,
   )
   # USE_CHANNEL_CONFIG 
