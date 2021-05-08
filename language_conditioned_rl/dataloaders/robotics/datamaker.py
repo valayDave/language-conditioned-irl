@@ -325,7 +325,185 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
             f'{self.file_name}.meta.csv'
         )
 
-
+FORBIDDEN_SENTENCES = [
+    "dump some into the bowl",
+    'pour some into the container',
+    'pour some into the round bowl',
+    'pour some into the small vessel',
+    'dump some into the circular vessel',
+    'dump some into the bowl',
+    'carefully dump some into the circular container',
+    'briskly dump some material into the pink cup',
+    'quickly dump some into the square container',
+    'dump some into the circular vessel',
+    'in a fast manner dump some into the tiny bin',
+    'put a portion into the box',
+    'place some material into the bowl',
+    'put a part in the mug into the tiny bowl',
+]
+OBJECT_IDENTIFIERS = [
+    {
+        "ID": 1,
+        "Type": "cup",
+        "Color": "red",
+        "Size": "n/a",
+        "Shape": "n/a"
+    },
+    {
+        "ID": 2,
+        "Type": "cup",
+        "Color": "green",
+        "Size": "n/a",
+        "Shape": "n/a"
+    },
+    {
+        "ID": 3,
+        "Type": "cup",
+        "Color": "blue",
+        "Size": "n/a",
+        "Shape": "n/a"
+    },
+    {
+        "ID": 1,
+        "Type": "bowl",
+        "Color": "yellow",
+        "Size": "small",
+        "Shape": "round"
+    },
+    {
+        "ID": 2,
+        "Type": "bowl",
+        "Color": "red",
+        "Size": "small",
+        "Shape": "round"
+    },
+    {
+        "ID": 3,
+        "Type": "bowl",
+        "Color": "green",
+        "Size": "small",
+        "Shape": "round"
+    },
+    {
+        "ID": 4,
+        "Type": "bowl",
+        "Color": "blue",
+        "Size": "small",
+        "Shape": "round"
+    },
+    {
+        "ID": 5,
+        "Type": "bowl",
+        "Color": "pink",
+        "Size": "small",
+        "Shape": "round"
+    },
+    {
+        "ID": 6,
+        "Type": "bowl",
+        "Color": "yellow",
+        "Size": "large",
+        "Shape": "round"
+    },
+    {
+        "ID": 7,
+        "Type": "bowl",
+        "Color": "red",
+        "Size": "large",
+        "Shape": "round"
+    },
+    {
+        "ID": 8,
+        "Type": "bowl",
+        "Color": "green",
+        "Size": "large",
+        "Shape": "round"
+    },
+    {
+        "ID": 9,
+        "Type": "bowl",
+        "Color": "blue",
+        "Size": "large",
+        "Shape": "round"
+    },
+    {
+        "ID": 10,
+        "Type": "bowl",
+        "Color": "pink",
+        "Size": "large",
+        "Shape": "round"
+    },
+    {
+        "ID": 11,
+        "Type": "bowl",
+        "Color": "yellow",
+        "Size": "small",
+        "Shape": "square"
+    },
+    {
+        "ID": 12,
+        "Type": "bowl",
+        "Color": "red",
+        "Size": "small",
+        "Shape": "square"
+    },
+    {
+        "ID": 13,
+        "Type": "bowl",
+        "Color": "green",
+        "Size": "small",
+        "Shape": "square"
+    },
+    {
+        "ID": 14,
+        "Type": "bowl",
+        "Color": "blue",
+        "Size": "small",
+        "Shape": "square"
+    },
+    {
+        "ID": 15,
+        "Type": "bowl",
+        "Color": "pink",
+        "Size": "small",
+        "Shape": "square"
+    },
+    {
+        "ID": 16,
+        "Type": "bowl",
+        "Color": "yellow",
+        "Size": "large",
+        "Shape": "square"
+    },
+    {
+        "ID": 17,
+        "Type": "bowl",
+        "Color": "red",
+        "Size": "large",
+        "Shape": "square"
+    },
+    {
+        "ID": 18,
+        "Type": "bowl",
+        "Color": "green",
+        "Size": "large",
+        "Shape": "square"
+    },
+    {
+        "ID": 19,
+        "Type": "bowl",
+        "Color": "blue",
+        "Size": "large",
+        "Shape": "square"
+    },
+    {
+        "ID": 20,
+        "Type": "bowl",
+        "Color": "pink",
+        "Size": "large",
+        "Shape": "square"
+    }
+]
 
 class SampleContrastingRule(metaclass=abc.ABCMeta):
     """SampleContrastingRule 
@@ -337,11 +515,22 @@ class SampleContrastingRule(metaclass=abc.ABCMeta):
         : _execute_rule : Filter a data frame with indices that belong to that contrastive samples of the rules. 
         : _validate_rule : Create a function to validate if two sample follow this rule or not. 
     
+    Implement Following Properties for Testing Plots : 
+        : `self.rule_map` : {
+            "pos_traj_rw":"", # Based on contrasting rule what is meaning of the postive sample
+            "neg_traj_rw":"", # Based on contrasting rule what is meaning of the negative sample
+            "plot_title": "" # Title of the plot when plotting the postive negative samples
+        }
     """
 
     def __init__(self, description=None):
         self.description = description
         self.rule_name = self.__class__.__name__
+        self.rule_map = {
+            "pos_traj_rw":"",
+            "neg_traj_rw":"",
+            "plot_title": ""
+        }
 
     def __call__(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         required_columns = HDF5ContrastiveSetCreator.MAPPING_COLUMNS.values()
@@ -378,6 +567,11 @@ class ContrastingActionsRule(SampleContrastingRule):
 
     def __init__(self,):
         super().__init__(description="Variation in the type of task creates contrastive samples")
+        self.rule_map = {
+            "pos_traj_rw":"The sentence is describing task X and the trajectory followed task X",
+            "neg_traj_rw":"The sentence is describing task Y and the trajectory followed task X",
+            "plot_title":"Reward Distribution when the tasks are different "
+        }
 
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         sets = []
@@ -397,80 +591,133 @@ class ContrastingActionsRule(SampleContrastingRule):
 
 
 
-class ContrastingObjectRule(SampleContrastingRule):
-    """ContrastingObjectRule 
-    Rule creates contrasting indexes based on examples which are of same task but different objects
+class PouringShapeSizeContrast(SampleContrastingRule):
+    """PouringShapeSizeContrastPouringShapeSizeContrast 
+    Rule creating contrasting indices based on shapes and sizes of the objects for pouring. 
     """
 
     def __init__(self,):
-        super().__init__(description="Same Task But Variation in the type of target object is used to create contrastive samples")
+        super().__init__(description="Rule creating contrasting indices based on shapes and sizes of the objects for pouring. Picking will be done based on the object itself. ")
+        self.FORBIDDEN_SENTENCES = FORBIDDEN_SENTENCES
+        self.OBJECT_IDENTIFIERS = pandas.DataFrame(OBJECT_IDENTIFIERS)
+        self.rule_map = {
+            "pos_traj_rw":"The sentence is describing object X in environment and the trajectory interacted with object X",
+            "neg_traj_rw":"The sentence is describing object Y in environment and the trajectory interacted with object X",
+            "plot_title":"Reward Distribution when the task is the same but the object is changed in the contrastive sentence For Pouring Task"
+        }
+
+    def make_pouring_data(self,dataframe,size):
+        bowl_types = self.OBJECT_IDENTIFIERS[self.OBJECT_IDENTIFIERS['Type'] =='bowl']
+        size_id_groups = []
+        return_data = []
+        
+        presentids = dataframe['target_id'].unique()
+        bowl_types = bowl_types[bowl_types['ID'].apply(lambda x: x in presentids)]
+
+        for g,grp in bowl_types.groupby(['Shape','Size']):
+            size_id_groups.append(grp['ID'].values)
+        
+        id_idx_map = dataframe.groupby(['target_id']).groups
+        # Make contrastive samples based on different shapes and sizes of the objects in pouring task
+        for _ in range(size):
+            ida,idb = random.sample(size_id_groups,2)
+            return_data.append(
+                (random.choice(id_idx_map[random.choice(ida)]),random.choice(id_idx_map[random.choice(idb)]))
+            )      
+        return return_data
 
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
-        num_top_type_grp = len(metadf.groupby(['demo_type']))
-        all_idxs = []
-        for grp, df in metadf.groupby(['demo_type']):
-            sets = []
-            # Group by target id and collect all indexes of groups as a list
-            type_group = df.groupby(['target_id'])
-            for tid, idxs in type_group.groups.items():
-                sets.append(idxs)
-            # sets contains the lists of list. Each item in sets is a list of indexes with a specific target_id
-            for i in range(int(num_samples_per_rule/num_top_type_grp)):
-                # Select any two group of indexes with different target_id
-                if len(sets) < 2:
-                    continue
-                set0, set1 = random.sample(sets, 2)
-                # Select any two indexes from the selected group of indexes.
-                all_idxs.append((random.choice(set0), random.choice(set1)))
-        return all_idxs
+        ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
+        demo_grp = ddf[ddf['demo_type'] ==1] 
+        return self.make_pouring_data(demo_grp,num_samples_per_rule)
 
-    def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
-        return demo_a['demo_type'] == demo_b['demo_type'] \
-                and \
-                demo_a['target_id'] != demo_b['target_id']
+class PickingObjectContrastingRule(SampleContrastingRule):
+    """PickingObjectContrastingRule 
+    Rule creating contrasting indices based object differences in picking task
+    """
 
+    def __init__(self,):
+        super().__init__(description="Rule creating contrasting indices based on shapes and sizes of the objects for pouring. Picking will be done based on the object itself. ")
+        self.FORBIDDEN_SENTENCES = FORBIDDEN_SENTENCES
+        self.OBJECT_IDENTIFIERS = pandas.DataFrame(OBJECT_IDENTIFIERS)
+        self.rule_map = {
+            "pos_traj_rw":"The sentence is describing object X in environment and the trajectory interacted with object X",
+            "neg_traj_rw":"The sentence is describing object Y in environment and the trajectory interacted with object X",
+            "plot_title":"Reward Distribution when the task is the same but the object is changed in the contrastive sentence For Picking Task"
+        }
 
+    def make_picking_data(self,demo_grp,size):
+      return_indexs = []
+      sets=[]
+      non_sampled_df = demo_grp.groupby(['target_id'])
+      for _, idxs in non_sampled_df.groups.items():
+          sets.append(idxs)
+      for i in range(size):
+        # Select any two group of indexes with different target_id
+        set0, set1 = random.sample(sets, 2)
+        # Select any two indexes from the selected group of indexes.
+        return_indexs.append((random.choice(set0), random.choice(set1)))
 
-class PouringIntensityRule(SampleContrastingRule):
-    """PouringIntensityRule 
-    Rule creates contrasting indexes for the pouring task with Little/Lot variations. 
+      return return_indexs
     
-    POSSIBLE BUG:
-    This function seems buggy. As if we are grouping on only `pouring_amount` then it serves a similar purpose as `ContrastingObjectRule`. as the examples can signify the same purpose as `ContrastingObjectRule`. 
 
-    BUG FIX:
-    This should be for same object! as ContrastingObjectRule already contrasts different `target_id`s. This should target pouring amounts for differnt ids. 
+    def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
+        ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
+        demo_grp = ddf[ddf['demo_type'] ==0] 
+        return self.make_picking_data(demo_grp,num_samples_per_rule)
+
+
+class SameObjectPouringIntensityRule(SampleContrastingRule):
+    """SameObjectPouringIntensityRule 
+    Rule creates contrasting indexes for the pouring task with Little/Lot variations. 
+    This is for same object! as ContrastingObjectRule already contrasts different
+    `target_id`s. 
     """
 
     def __init__(self,):
         super().__init__(description="Variation in the intensity of pouring to create contrastive samples")
+        self.FORBIDDEN_SENTENCES = FORBIDDEN_SENTENCES
+        self.rule_map = {
+            "pos_traj_rw":"The sentence is telling the robot to pour little and the robot did the same. Same for pouring a lot.",
+            "neg_traj_rw":"The sentence is telling the robot to pour little but the robot pours a lot. Visa-Versa for little",
+            "plot_title":"Reward Distribution in the pour Little vs lot case"
+        }
 
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
-        process_df = metadf[metadf['demo_type'] == 1]
+        sets = []
+        ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]        
+        process_df = ddf[ddf['demo_type'] == 1]
         # num_top_type_grp = len(metadf.groupby(['demo_type']))
-        num_top_type_grp = len(process_df.groupby(['pouring_amount']))
+        num_top_type_grp = len(process_df.groupby(['target_id']))
         all_idxs = []
         sets = []
-        for grp, grpidxs in process_df.groupby(['pouring_amount']).groups.items():
-            sets.append(grpidxs)
-
-        for i in range(int(num_samples_per_rule)):
-            # Select any two group of indexes with different pouring_amount
-            set0, set1 = random.sample(sets, 2)
-            # Select any two indexes from the selected group of indexes.
-            all_idxs.append((random.choice(set0), random.choice(set1)))
+        
+        for tgid, tgidgroup in process_df.groupby(['target_id']):
+          # Make contrastive samples based on different pouring amounts for same type of object
+          amount_sets = []
+          for pouramt, pagroup_idxs in tgidgroup.groupby(['pouring_amount']).groups.items():
+            amount_sets.append(pagroup_idxs)
+            # sets.append(grpidxs)
+          
+          for i in range(int(num_samples_per_rule/num_top_type_grp)):
+              # Select any of indexes with different pouring_amount for same target
+              set0, set1 = amount_sets
+              # Select any two indexes from the selected group of indexes.
+              all_idxs.append((random.choice(set0), random.choice(set1)))
 
         return all_idxs
     
     def _validate_rule(self,demo_a:pandas.Series,demo_b:pandas.Series):
-        return demo_a['demo_type'] == 1 \
-                and \
-                demo_a['pouring_amount'] != demo_b['pouring_amount']
+        return demo_a['demo_type'] == 1 and demo_a['pouring_amount'] != demo_b['pouring_amount'] and demo_a['target_id'] == demo_b['target_id']
+
+
+
 
 POSSIBLE_RULES = [
     ContrastingActionsRule,
-    ContrastingObjectRule,
-    PouringIntensityRule,
+    PouringShapeSizeContrast,
+    PickingObjectContrastingRule,
+    SameObjectPouringIntensityRule,
 ]
 
 
