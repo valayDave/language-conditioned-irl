@@ -80,8 +80,9 @@ class TestSetCollateFn(ContrastiveCollateFn):
 
 
 class RoboTestDataset(SentenceContrastiveDataset):
-    def __init__(self, contrastive_set_generated_folder: str, use_channels=USE_CHANNELS, size: int=200) -> None:
+    def __init__(self, contrastive_set_generated_folder: str,normalize_images:bool=False,use_channels=USE_CHANNELS, size: int=200) -> None:
         super().__init__(contrastive_set_generated_folder, \
+                        normalize_images=normalize_images,\
                         use_channels=use_channels,\
                         train=False,\
                         use_original_contrastive_indices=False,\

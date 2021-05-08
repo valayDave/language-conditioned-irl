@@ -65,9 +65,16 @@ class SentenceContrastiveDataset(Dataset):
                 contrastive_set_generated_folder:str,\
                 use_channels=USE_CHANNELS,\
                 train=True,\
+                normalize_images=False,\
                 use_original_contrastive_indices:bool=True,\
                 size:int=200) -> None:
         super().__init__()
+        from torchvision import transforms
+        self.normalize_images= normalize_images
+        self.norm_transform = transforms.Compose([
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225])
+        ])
         self._open_dataset(contrastive_set_generated_folder,\
                             size,\
                             use_channels=use_channels,\
@@ -189,9 +196,16 @@ class SentenceContrastiveDataset(Dataset):
         channel_dict = {}
         for k in self.sequences.keys():
             mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
+            seq = torch.from_numpy(self.sequences[k][index])
+            if k == 'image_sequence' and self.normalize_images: # Monkey Patch
+                seq_frames = []
+                for frame in seq:
+                    seq_frames.append(self.norm_transform(frame))
+                seq = torch.stack(seq_frames)
+                
             channel_dict[k] = ChannelData(
                 mask=mask,
-                sequence=torch.from_numpy(self.sequences[k][index]),
+                sequence=seq,
                 name=k
             )
         return channel_dict
