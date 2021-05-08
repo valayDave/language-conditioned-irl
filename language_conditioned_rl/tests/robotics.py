@@ -102,15 +102,10 @@ class RoboTestDataset(SentenceContrastiveDataset):
 
 
 def run_test_pipeline(model:LGRRoboRewardLearner,\
-                    contrastive_set_generated_folder:str,\
                     batch_size = 20,\
-                    use_channels=USE_CHANNELS,\
-                    size:int=200):
-    dataset = RoboTestDataset(
-        contrastive_set_generated_folder,
-        size=size,\
-        use_channels=use_channels,\
-    )
+                    dataset = None):
+    assert dataset is not None
+    assert type(dataset) == RoboTestDataset
     testing_loader = DataLoader(dataset,batch_size=batch_size,collate_fn=dataset.collate_fn())
     final_dataset_collection = []
     with torch.no_grad():
@@ -172,7 +167,7 @@ def run_test_pipeline(model:LGRRoboRewardLearner,\
 
 
 
-def plot_test_case_results(test_pipeline_resp,plt_name='robo-reward-dist.pdf',show=False):
+def plot_test_case_results(test_pipeline_resp,plt_name='robo-reward-dist.pdf',show=False,rule_map=RULE_MAP):
     model_responses = pandas.DataFrame(test_pipeline_resp)
     dfx = model_responses[['pp_reward','pn_reward','rule','id_pair']]
     dfx = dfx.rename(columns={'pp_reward':'pos_traj_rw','pn_reward':'neg_traj_rw'})
@@ -185,12 +180,12 @@ def plot_test_case_results(test_pipeline_resp,plt_name='robo-reward-dist.pdf',sh
         min_t = grp['neg_traj_rw'].min()
         max_t = grp['pos_traj_rw'].max()
         bins = np.linspace(min_t,max_t, 10)
-        axis.hist(grp['pos_traj_rw'], bins, alpha=0.5, label=RULE_MAP[grp_v]['pos_traj_rw'])
-        axis.hist(grp['neg_traj_rw'], bins, alpha=0.5, label=RULE_MAP[grp_v]['neg_traj_rw'])
+        axis.hist(grp['pos_traj_rw'], bins, alpha=0.5, label=rule_map[grp_v]['pos_traj_rw'])
+        axis.hist(grp['neg_traj_rw'], bins, alpha=0.5, label=rule_map[grp_v]['neg_traj_rw'])
         axis.legend(loc='upper left',prop={'size': 18})
         axis.set_xlabel('Rewards')
         axis.set_ylabel('Num Sent/Traj')
-        axis.set_title(RULE_MAP[grp_v]['plot_title'])
+        axis.set_title(rule_map[grp_v]['plot_title'])
         for item in ([axis.title, axis.xaxis.label, axis.yaxis.label] +
                     axis.get_xticklabels() + axis.get_yticklabels()):
             item.set_fontsize(20)
@@ -202,18 +197,16 @@ def plot_test_case_results(test_pipeline_resp,plt_name='robo-reward-dist.pdf',sh
 def save_test_data(
         model:LGRRoboRewardLearner,\
         logger,
-        contrastive_set_generated_folder:str,\
         batch_size = 20,\
-        size:int=200,\
+        dataset = None,\
         plt_name='robo-reward-dist.pdf',\
         show_plot=False,
         use_channels=USE_CHANNELS,
     ):
     return_object = run_test_pipeline(
         model,
-        contrastive_set_generated_folder,
+        dataset = None,
         batch_size=batch_size,
-        size=size,
         use_channels=use_channels
     )
     save_tests = f'{logger.experiment_id}.json'
