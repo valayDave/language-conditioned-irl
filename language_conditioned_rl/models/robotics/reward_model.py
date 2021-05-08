@@ -46,6 +46,10 @@ class LGRRoboRewardLearner(pl.LightningModule):
     self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
     self.data_params = data_params
 
+  def on_pretrain_routine_start(self) -> None:
+    # Put Main Embeddings On CPU
+    self.model.text__embedding.embeddings.to(torch.device('cpu'))
+
   # state,action should be full trajectory sequences for state and action for each element in the batch.
   def forward(self,input_channels: List[ChannelData],return_attentions=False):
     return self.model(input_channels,return_attentions=return_attentions)

@@ -462,7 +462,11 @@ class TextEmbeddingsPretrain(nn.Module):
             self.embeddings.weight.requires_grad = False
     
     def forward(self, channel_seq):
-        return self.embeddings(channel_seq)
+        if self.embeddings.weight.device != channel_seq.device:
+            z = channel_seq.to(self.embeddings.weight.device)
+            return self.embeddings(z).to(channel_seq.device)
+        else:
+            return self.embeddings(channel_seq)
 
 
 class ChannelEmbeddingContinous(nn.Module):
