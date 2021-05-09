@@ -624,17 +624,18 @@ class PouringShapeSizeContrast(SampleContrastingRule):
         bowl_types = bowl_types[bowl_types['ID'].apply(lambda x: x in presentids)]
 
         while len(return_data) < size:
+            # Pick some pouring demo
             t1obj = dataframe.sample(1)
             idxa = t1obj.index[0]
             t1_targid = t1obj.iloc[0]['target_id']
-            # Filter Objects which Don't match Category. 
             t1_obj = bowl_types[bowl_types['ID'] == t1_targid]
+            # Find all other objects which don't match the demo object's shape size and color  
             not_t1_mask = bowl_types.apply(lambda x: x['Shape']!= t1_obj.iloc[0]['Shape'] and x['Size']!= t1_obj.iloc[0]['Size'] and x['Color']!=t1_obj.iloc[0]['Color'])
             if len(bowl_types[not_t1_mask]) == 0:
                 print(f"Category {t1_targid} Has No Counter IN List")
                 continue
             t2_targid = bowl_types[not_t1_mask].sample(1).iloc[0]['ID']
-            # idxa = sampled_object.index[0]
+            # Filter data based on the object's which didn't match demo 1's criterea and make training tuple. 
             t2obj = dataframe[dataframe['target_id'] == t2_targid].sample(1)
             idxb = t2obj.index[0]
             return_data.append(
