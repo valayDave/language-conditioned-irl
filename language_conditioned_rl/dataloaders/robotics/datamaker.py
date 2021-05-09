@@ -299,6 +299,16 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
     
     
     def build(self,chunk_size=20):
+        def filter_smaller_video_frames(robo_data_dict,max_num_video_frames=MAX_VIDEO_FRAMES,max_traj_len=MAX_TRAJ_LEN):
+            if 'image_sequence' in robo_data_dict:
+                if len(robo_data_dict['image_sequence']) < max_num_video_frames:
+                    return False
+            if 'state/dict' in robo_data_dict:
+                if len(robo_data_dict['state/dict']) > max_traj_len:
+                    return False
+
+            return True
+
         self.logger = create_logger(self.__class__.__name__)
         file_chunks = self._make_list_chunks(self.sample_pths,chunk_size)
         main_meta_df = []
@@ -307,7 +317,11 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
             decompressd_objects = parallel_map(lambda x : self.load_and_decompress(x),json_pth_chunk)
             self.logger.info(f"Completed Loading Path Chunk {idx}")
             # Make the Chunked Tensors from this
-            object_tuple = self.roboutils.make_saveable_chunk(decompressd_objects)
+            filtered_objects = list(filter(
+                filter_smaller_video_frames,
+                decompressd_objects
+            ))
+            object_tuple = self.roboutils.make_saveable_chunk(filtered_objects)
             sequence_dict, mask_dict, id_list = object_tuple
             if self.hf is None:
                 self._create_core_structures(sequence_dict, mask_dict, id_list)
@@ -602,7 +616,7 @@ class PouringShapeSizeContrast(SampleContrastingRule):
             - color
         - Contrastive example created from following rule : 
             - Pick some object of T1 based on shape and size.
-            - Pick T2 where T2_shape != T1_shape and T2_size != T1_size and T2_color != T1_color
+            - Pick T2 where T2_shape != T1_shape and T2_size != T1_size and T2_color != T1_color and T2_pouring_amount!= T1_pouring_amount
 
     """
 
@@ -636,7 +650,8 @@ class PouringShapeSizeContrast(SampleContrastingRule):
                 continue
             t2_targid = bowl_types[not_t1_mask].sample(1).iloc[0]['ID']
             # Filter data based on the object's which didn't match demo 1's criterea and make training tuple. 
-            t2obj = dataframe[dataframe['target_id'] == t2_targid].sample(1)
+            t2obj_df = dataframe[dataframe['target_id'] == t2_targid][dataframe['pouring_amount'] == t1obj.iloc[0]['pouring_amount']]
+            t2obj = t2obj_df.sample(1)
             idxb = t2obj.index[0]
             return_data.append(
                 (idxa,idxb)
@@ -691,7 +706,7 @@ class SameObjectPouringIntensityRule(SampleContrastingRule):
     """SameObjectPouringIntensityRule 
     Rule creates contrasting indexes for the pouring task with Little/Lot variations. 
     This is for same object! as ContrastingObjectRule already contrasts different
-    `target_id`s. 
+    `target_id`s.
     """
 
     def __init__(self,):
