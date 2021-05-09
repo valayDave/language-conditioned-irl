@@ -639,7 +639,7 @@ class PouringShapeSizeContrast(SampleContrastingRule):
             t2obj = dataframe[dataframe['target_id'] == t2_targid].sample(1)
             idxb = t2obj.index[0]
             return_data.append(
-                idxa,idxb
+                (idxa,idxb)
             )
 
         return return_data
