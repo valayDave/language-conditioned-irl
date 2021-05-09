@@ -593,7 +593,17 @@ class ContrastingActionsRule(SampleContrastingRule):
 
 class PouringShapeSizeContrast(SampleContrastingRule):
     """PouringShapeSizeContrastPouringShapeSizeContrast 
-    Rule creating contrasting indices based on shapes and sizes of the objects for pouring. 
+    Rule creating contrasting indices based on shapes and sizes of the objects for pouring.
+
+    This requires a little complex rule. 
+        - Every object contains the folloowing attributes: 
+            - shape
+            - size
+            - color
+        - Contrastive example created from following rule : 
+            - Pick some object of T1 based on shape and size.
+            - Pick T2 where T2_shape != T1_shape and T2_size != T1_size and T2_color != T1_color
+
     """
 
     def __init__(self,):
@@ -606,25 +616,34 @@ class PouringShapeSizeContrast(SampleContrastingRule):
             "plot_title":"Reward Distribution when the task is the same but the object is changed in the contrastive sentence For Pouring Task"
         }
 
-    def make_pouring_data(self,dataframe,size):
+    def make_pouring_data(self,dataframe:pandas.DataFrame,size):
         bowl_types = self.OBJECT_IDENTIFIERS[self.OBJECT_IDENTIFIERS['Type'] =='bowl']
-        size_id_groups = []
         return_data = []
         
         presentids = dataframe['target_id'].unique()
         bowl_types = bowl_types[bowl_types['ID'].apply(lambda x: x in presentids)]
 
-        for g,grp in bowl_types.groupby(['Shape','Size']):
-            size_id_groups.append(grp['ID'].values)
-        
-        id_idx_map = dataframe.groupby(['target_id']).groups
-        # Make contrastive samples based on different shapes and sizes of the objects in pouring task
-        for _ in range(size):
-            ida,idb = random.sample(size_id_groups,2)
+        while len(return_data) < size:
+            t1obj = dataframe.sample(1)
+            idxa = t1obj.index[0]
+            t1_targid = t1obj.iloc[0]['target_id']
+            # Filter Objects which Don't match Category. 
+            t1_obj = bowl_types[bowl_types['ID'] == t1_targid]
+            not_t1_mask = bowl_types.apply(lambda x: x['Shape']!= t1_obj.iloc[0]['Shape'] and x['Size']!= t1_obj.iloc[0]['Size'] and x['Color']!=t1_obj.iloc[0]['Color'])
+            if len(bowl_types[not_t1_mask]) == 0:
+                print(f"Category {t1_targid} Has No Counter IN List")
+                continue
+            t2_targid = bowl_types[not_t1_mask].sample(1).iloc[0]['ID']
+            # idxa = sampled_object.index[0]
+            t2obj = dataframe[dataframe['target_id'] == t2_targid].sample(1)
+            idxb = t2obj.index[0]
             return_data.append(
-                (random.choice(id_idx_map[random.choice(ida)]),random.choice(id_idx_map[random.choice(idb)]))
-            )      
+                idxa,idxb
+            )
+
         return return_data
+
+
 
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
