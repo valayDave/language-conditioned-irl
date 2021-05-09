@@ -630,7 +630,7 @@ class PouringShapeSizeContrast(SampleContrastingRule):
             t1_targid = t1obj.iloc[0]['target_id']
             t1_obj = bowl_types[bowl_types['ID'] == t1_targid]
             # Find all other objects which don't match the demo object's shape size and color  
-            not_t1_mask = bowl_types.apply(lambda x: x['Shape']!= t1_obj.iloc[0]['Shape'] and x['Size']!= t1_obj.iloc[0]['Size'] and x['Color']!=t1_obj.iloc[0]['Color'])
+            not_t1_mask = bowl_types.apply(lambda x: x['Shape']!= t1_obj.iloc[0]['Shape'] and x['Size']!= t1_obj.iloc[0]['Size'] and x['Color']!=t1_obj.iloc[0]['Color'],axis=1)
             if len(bowl_types[not_t1_mask]) == 0:
                 print(f"Category {t1_targid} Has No Counter IN List")
                 continue
