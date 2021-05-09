@@ -616,7 +616,10 @@ class PouringShapeSizeContrast(SampleContrastingRule):
             - color
         - Contrastive example created from following rule : 
             - Pick some object of T1 based on shape and size.
-            - Pick T2 where T2_shape != T1_shape and T2_size != T1_size and T2_color != T1_color and T2_pouring_amount!= T1_pouring_amount
+            - Pick T2 where T2_shape != T1_shape \
+                and T2_size != T1_size \
+                    and T2_color != T1_color \
+                        and T2_pouring_amount!= T1_pouring_amount
 
     """
 
@@ -650,7 +653,8 @@ class PouringShapeSizeContrast(SampleContrastingRule):
                 continue
             t2_targid = bowl_types[not_t1_mask].sample(1).iloc[0]['ID']
             # Filter data based on the object's which didn't match demo 1's criterea and make training tuple. 
-            t2obj_df = dataframe[dataframe['target_id'] == t2_targid][dataframe['pouring_amount'] == t1obj.iloc[0]['pouring_amount']]
+            t2obj_df_x = dataframe[dataframe['target_id'] == t2_targid]
+            t2obj_df = t2obj_df_x[t2obj_df_x['pouring_amount'] == t1obj.iloc[0]['pouring_amount']]
             t2obj = t2obj_df.sample(1)
             idxb = t2obj.index[0]
             return_data.append(
