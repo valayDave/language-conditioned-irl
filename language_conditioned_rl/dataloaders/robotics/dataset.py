@@ -182,6 +182,26 @@ class ContrastiveCollateFn:
                     core_channels[channel_obj.name].mask.append(channel_obj.mask)
         return core_channels  # { k : list(tensor(1xsxd))}
 
+
+class MultiTaskContrastiveCollateFn:
+  """
+  returns tuple(`ContrastiveGenerator`'s)
+  """
+
+  def __init__(self):
+    self.collate_fn = ContrastiveCollateFn()
+
+  def __call__(self, batch):
+    num_tasks = len(batch[0])
+    task_dict = {t: [] for t in range(num_tasks)}
+    for task_tuple_batch in batch:
+      for x, t in enumerate(task_tuple_batch):
+        task_dict[x].append(t)
+
+    return tuple(self.collate_fn(task_tups)
+                 for _, task_tups in task_dict.items())
+
+
 class DemonstrationsDataset(Dataset):
     """DemonstrationsDataset 
     Dataset wrapper over the HDF5 dataset which is stored. 

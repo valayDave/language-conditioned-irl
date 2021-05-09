@@ -17,6 +17,7 @@ from .utils import \
 from .dataset import \
     GROUPNAMES,\
     ContrastiveCollateFn,\
+    MultiTaskContrastiveCollateFn,\
     is_present,\
     collate_indices,\
     map_to_contrastive_indexes_to_ids,\
@@ -27,6 +28,7 @@ from .datamaker import \
     HDF5ContrastiveSetCreator,\
     ContrastiveControlParameters,\
     SampleContrastingRule
+
 
 
 class SentenceContrastiveDataset(Dataset):
@@ -220,3 +222,42 @@ class SentenceContrastiveDataset(Dataset):
     def collate_fn():
         return ContrastiveCollateFn()
 
+class TaskBasedSentenceContrastiveDataset(Dataset):
+    """TaskBasedSentenceContrastiveDataset 
+    Creates a dataset which returns rule specific contrastive loss tuples. 
+    """
+    def __init__(self,\
+                contrastive_set_generated_folder:str,\
+                use_channels=USE_CHANNELS,\
+                train=True,\
+                rules = [],\
+                normalize_images=False,\
+                size:int=200) -> None:
+        assert len(rules) > 0, "Need Specific Rules To Instantiate Dataset"
+        self.datasets = [
+            SentenceContrastiveDataset(
+                contrastive_set_generated_folder,
+                use_channels=use_channels,
+                use_original_contrastive_indices=True,
+                normalize_images=normalize_images,
+                train=train
+            ) for _ in range(len(rules))
+        ]
+        for r,d in zip(rules,self.datasets):
+            d.remake_indices(
+                int(size/len(rules)),rules=[r]
+            )
+    
+    def __getitem__(self, index):
+        return tuple(
+            d[index] for d in self.datasets
+        )
+        
+    def __len__(self):
+        return min([len(x) for x in self.datasets])
+
+
+    @staticmethod
+    def collate_fn():
+        return MultiTaskContrastiveCollateFn()
+        
