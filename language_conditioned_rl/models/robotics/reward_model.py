@@ -1,4 +1,5 @@
 import pytorch_lightning as pl 
+import json
 import torch
 import torch.nn as nn
 from typing import List, Tuple
@@ -16,12 +17,17 @@ from ..transformer import \
     PRETRAINED_MODEL
 
 from ..reward_model import DataAndOptimizerConf,RewardHeadWithOnlyBackbone
-from ...dataloaders.robotics.dataset import CONTINOUS_VALUE_DIMS
+from ...dataloaders.robotics.dataset import CONTINOUS_VALUE_DIMS, MAX_TEXT_LENGTH, MAX_TRAJ_LEN, MAX_VIDEO_FRAMES
 
 DISCRETE_EMBEDDING_SIZE = 128
 PATCH_SIZE=64
 PATCH_EMBEDDING_DIMS = 128
 IMAGE_SIZE = (256,256)
+
+
+def NEPTUNE_JSON_FIXER(json_str):
+    return json.loads(json_str.replace("'",'"').replace('None','null').replace('True','true').replace('False','false'))
+
 
 
 USE_CHANNELS = [
@@ -34,6 +40,8 @@ USE_CHANNELS = [
 ]
 
 GLOBAL_EMBEDDINGS = None
+
+GLOBAL_RESNET_BACKBONE = None
 
 def set_global_embed(embed_layer):
   global GLOBAL_EMBEDDINGS
@@ -71,6 +79,79 @@ class DetachedTextEmbeddingsPretrain(nn.Module):
   def forward(self, channel_seq):
     return make_embedding(channel_seq)
       
+
+class VisualBackbone(nn.Module):
+    r"""
+    THANK YOU : https://github.com/kdexd/virtex/blob/master/virtex/modules/visual_backbones.py
+    Base class for all visual backbones. All child classes can simply inherit
+    from :class:`~torch.nn.Module`, however this is kept here for uniform
+    type annotations.
+    """
+
+    def __init__(self, visual_feature_size: int):
+        super().__init__()
+        self.visual_feature_size = visual_feature_size
+
+
+class TorchvisionVisualBackbone(VisualBackbone):
+    r"""
+    A visual backbone from `Torchvision model zoo
+    <https://pytorch.org/docs/stable/torchvision/models.html>`_. Any model can
+    be specified using corresponding method name from the model zoo.
+    Parameters
+    ----------
+    name: str, optional (default = "resnet50")
+        Name of the model from Torchvision model zoo.
+    visual_feature_size: int, optional (default = 2048)
+        Size of the channel dimension of output visual features from forward pass.
+    pretrained: bool, optional (default = False)
+        Whether to load ImageNet pretrained weights from Torchvision.
+    frozen: float, optional (default = False)
+        Whether to keep all weights frozen during training.
+    """
+
+    def __init__(
+        self,
+        visual_feature_size: int = 2048,
+        pretrained: bool = False,
+        frozen: bool = False,
+    ):
+        super().__init__(visual_feature_size)
+        from torchvision.models import resnet18
+        self.cnn = resnet18(
+            pretrained, zero_init_residual=True
+        )
+        # Do nothing after the final residual stage.
+        self.cnn.fc = nn.Identity()
+
+        # Freeze all weights if specified.
+        if frozen:
+            for param in self.cnn.parameters():
+                param.requires_grad = False
+            self.cnn.eval()
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        r"""
+        Compute visual features for a batch of input images.
+        Parameters
+        ----------
+        image: torch.Tensor
+            Batch of input images. A tensor of shape
+            ``(batch_size, 3, height, width)``.
+        Returns
+        -------
+        torch.Tensor
+            A tensor of shape ``(batch_size, channels, height, width)``, for
+            example it will be ``(batch_size, 2048, 7, 7)`` for ResNet-50.
+        """
+
+        for idx, (name, layer) in enumerate(self.cnn.named_children()):
+            out = layer(image) if idx == 0 else layer(out)
+
+            # These are the spatial features we need.
+            if name == "layer4":
+                # shape: (batch_size, channels, height, width)
+                return out
 
 
 class LGRRoboRewardLearner(pl.LightningModule):
@@ -504,3 +585,57 @@ def make_model(
       transformer_config,pc_grad_loss=is_pc_grad,data_params=dataparams
     )
   # return trans
+class RoboRewardFnMixin(object):
+
+    def __init__(self,
+                 max_video_len = MAX_VIDEO_FRAMES,
+                 max_traj_length=MAX_TRAJ_LEN,
+                 max_text_len=MAX_TEXT_LENGTH,
+                 experiment_name=None,
+                 loaded_checkpoint=None,
+                 pretrained_model=PRETRAINED_MODEL):
+
+        from transformers import AutoTokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
+        self.max_traj_length = max_traj_length
+        self.max_text_len = max_text_len
+        self.experiment_name = experiment_name
+        self.loaded_checkpoint = loaded_checkpoint
+        self.max_video_len = max_video_len
+    
+    def get_rewards(self,text,states):
+      assert type(text) == str
+      assert type(states) == dict
+      
+
+
+
+def get_checkpoint(project_name='valay/Language-Grounded-Rewards-Robo',
+                experiment_name='LRO-89',
+                checkpoint_path='checkpoints/last.pt', \
+                base_path='model_checkpoints/',
+                api_token=None,):
+  import neptune
+  import os
+  import json
+  if api_token is None:
+      raise Exception("API Token Missing")
+
+  project = neptune.init(project_name,
+                          api_token=api_token
+                          )
+  my_exp = project.get_experiments(id=experiment_name)[0]
+  my_exp.download_artifact(checkpoint_path, destination_dir=base_path)
+  config = my_exp.get_parameters()
+  ckck_name = checkpoint_path.split('/')[1]
+  checkpoint = torch.load(os.path.join(
+      base_path, ckck_name), map_location=torch.device('cpu'))
+  
+  if 'channel_configurations' in config:
+    config['channel_configurations'] = NEPTUNE_JSON_FIXER(config['channel_configurations'])
+  if 'transformer_params' in config:
+    config['transformer_params']  = NEPTUNE_JSON_FIXER(config['transformer_params'])
+  if 'data_params' in config:
+    config['data_params']  = NEPTUNE_JSON_FIXER(config['data_params'])
+
+  return checkpoint,config
