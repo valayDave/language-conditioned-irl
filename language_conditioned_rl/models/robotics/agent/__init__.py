@@ -1,4 +1,5 @@
 # Import Absolutes deps
+from os import stat
 import torch.nn as nn
 import torch
 from torch.autograd import Variable
@@ -146,23 +147,28 @@ class TorchRLAgent(TorchAgent,RLAgent):
 
 
 class DDPGAgent():
-    
-    def __init__(self,num_input_states=7,num_output_states=7):
+    # num_input_states (7+2) : 6 position + 1 gripper state + (x,y) position
+    # prediction : JV + gripper state
+    def __init__(self,num_input_states=9,num_output_states=7):
         pose_args = DDPGArgs()
-        pose_args.bounding_min = 0
+        pose_args.bounding_min = -1
+        pose_args.bounding_max= 1
         self.postion_predictor = DDPG(num_input_states,num_output_states,args=pose_args)
     
     def update(self):
         self.postion_predictor.update_policy()
     
-    def observe(self, r_t, s_t1, done):
-        self.postion_predictor.observe(r_t,s_t1,done)    
+    def observe(self,s_t,a_t, r_t, done):
+        self.postion_predictor.observe(s_t,a_t,r_t,done)    
     
     def random_action(self):
         return self.postion_predictor.random_action() 
 
     def select_action(self,s_t):
         return self.postion_predictor.select_action(s_t)
+
+    def reset(self):
+        self.postion_predictor.reset()
         
  
 class RobotAgent(TorchRLAgent):
@@ -172,18 +178,25 @@ class RobotAgent(TorchRLAgent):
     Algo Of Choice : https://spinningup.openai.com/en/latest/algorithms/ddpg.html
 
     Why DDPG : 
-        
+    ----------    
     So as its a continous actionspace one can try and use DDPG 
     https://math.stackexchange.com/questions/3179912/policy-gradient-reinforcement-learning-for-continuous-state-and-action-space
     https://ai.stackexchange.com/questions/4085/how-can-policy-gradients-be-applied-in-the-case-of-multiple-continuous-actions
 
+    Inputstate 
+    ----------
+    num_input_states (7+2) : 6 position + 1 gripper state + (x,y) position
+
+    prediction 
+    ------------
+    JV + gripper state
     """
     def __init__(self,learning_rate = 0.001,batch_size=64,collect_gradients=False,warmup=10):
         super(RobotAgent,self).__init__(collect_gradients=collect_gradients,warmup=warmup)
         self.learning_rate = learning_rate
         # action should contain 1 extra value for gripper open close state
-        self.neural_network = DDPG(7,8) # 1 DDPG Setup with Different Predictors. 
-        self.agent_name ="DDPG__AGENT"
+        self.neural_network = DDPGAgent(num_input_states=9,num_output_states=7) # 1 DDPG Setup with Different Predictors. 
+        self.agent_name ="DDPG_AGENT"
         self.input_state = 'joint_positions'
         self.output_action = 'joint_velocities'
         self.data_loader = None
@@ -192,24 +205,29 @@ class RobotAgent(TorchRLAgent):
         self.print_every = 40
    
     
-    def get_information_vector(self,demonstration_episode:List[Observation]):
-        raise NotImplementedError()
+    def _get_state_vector(self,state_dict:dict):
+        return np.concatenate(
+            (np.array(state_dict['joint_robot_position']),\
+                np.array(state_dict['joint_gripper']),\
+                    np.array(state_dict['final_postion']))
+        )
+        
 
-    def observe(self,state_t1:List,action_t,reward_t:int,done:bool):
+    def observe(self,state_t:dict,action_t,reward_t:int,done:bool):
         """
         State s_t1 can be None because of errors thrown by policy. 
         """
-        raise NotImplementedError()
+        
+        self.neural_network.observe(
+            self._get_state_vector(state_t),action_t,reward_t,done
+        )
     
     def update(self):
-        self.neural_network.update_policy()
+        self.neural_network.update()
 
-    def reset(self,state:List[Observation]):
-        # self.neural_network.reset(self.get_information_vector(state))
-        raise NotImplementedError()
+    def reset(self):
+        self.neural_network.reset()
+        
 
-    def act(self,state:List[Observation],timestep=0):
-        """
-        ACTION PREDICTION : ABS_EE_POSE_PLAN
-        """
-        raise NotImplementedError()
+    def act(self,state_t:dict):
+       return self.neural_network.select_action(self._get_state_vector(state_t))

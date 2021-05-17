@@ -121,9 +121,6 @@ class RoboDataUtils:
         return resized_img_tensor
 
     def make_tensor_from_video(self, video_arr,max_frames=MAX_VIDEO_FRAMES):
-        # TODO : Make Video Tensor Here. 
-        # for img in video_arr:
-        print("Number Of Frames : ",len(video_arr))
         sample_frames = random.sample(list(range(len(video_arr))),max_frames)
         video_frames = []
         for img_idx in sample_frames:

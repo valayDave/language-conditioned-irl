@@ -133,10 +133,9 @@ class DDPG(object):
         self.critic.cuda()
         self.critic_target.cuda()
 
-    def observe(self, r_t, s_t1, done):
+    def observe(self, s_t,a_t,r_t, done):
         if self.is_training:
-            self.memory.append(self.s_t, self.a_t, r_t, done)
-            self.s_t = s_t1
+            self.memory.append(s_t, a_t, r_t, done)
 
     def random_action(self):
         # TODO : This is a problem. Need to Fix Action Spaces Here. 
@@ -145,7 +144,7 @@ class DDPG(object):
         return action
 
     def select_action(self, s_t, decay_epsilon=True):
-        # todo : Actions being damped here. Need to think and figure more. 
+        # todo : figure if tensors grad associations is are causing issues.
         action = to_numpy(
             self.actor(to_tensor(np.array([s_t])))
         ).squeeze(0)
@@ -158,8 +157,7 @@ class DDPG(object):
         self.a_t = action
         return action
 
-    def reset(self, obs):
-        self.s_t = obs
+    def reset(self,):
         self.random_process.reset_states()
 
     def load_weights(self, output):

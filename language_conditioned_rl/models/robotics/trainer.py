@@ -20,6 +20,8 @@ from pyrep import PyRep
 import matplotlib
 matplotlib.use("TkAgg")
 import neptune
+import random
+import signal
 from .reward_model import RoboRewardFnMixin
 from .agent import RobotAgent
 from ..mountaincar.gym import RewardNormalizer
@@ -41,8 +43,9 @@ NORM_PATH = "./GDrive/normalization_v2.pkl"
 # Where to find the VRep scene file. This has to be an absolute path.
 VREP_SCENE = "./GDrive/NeurIPS2020.ttt"
 
-DEFAULT_LOGGER_PROJECT_NAME = 'valay/LGR-RL-Robo'
+DEFAULT_LOGGER_PROJECT_NAME = 'valay/LGR-RL-Robot'
 DEFAULT_EXPERIMENT_NAME = 'PICKING-Task-Agent'
+import signal
 
 
 class Simulator(object):
@@ -69,7 +72,6 @@ class Simulator(object):
 
         self.model_hidden = model_hidden
         self.num_eps = num_eps
-        self.num_timesteps = num_timesteps
         self.reward_scaleup = reward_scaleup
         self.project_name = project_name
         self.experiment_name = experiment_name
@@ -80,13 +82,12 @@ class Simulator(object):
         self.reward_min = reward_min
         self.reward_scaleup = reward_scaleup
         self.log_every=log_every
-
+        signal.signal(signal.SIGINT,self._sigint_handler)
         self.trajectory = None
         self.global_step = 0
         self.normalization = pickle.load(
             open(NORM_PATH, mode="rb"), encoding="latin1")
         self.voice = Voice(load=False)
-
         self.shape_size_replacement = {}
         self.shape_size_replacement["58z29D2omoZ_2.json"] = "spill everything into the large curved dish"
         self.shape_size_replacement["P1VOZ4zk4NW_2.json"] = "fill a lot into the small square basin"
@@ -419,17 +420,10 @@ class Simulator(object):
 
         return successfull, val_data
 
-    def train_rl_picking(self,runs,path="../GDrive/testdata/*_1.json"):
+    def get_picking_epsiode_file(self,path="../GDrive/testdata/*_1.json"):
         files = glob.glob(path)
-        files = files[:runs]
-        filenames = [f[:-6] for f in files]
-        data = {}
-        s_p1, e_data = self.valPhase1(filenames)
-        data["phase_1"] = e_data
-
-        with open("val_result.json", "w") as fh:
-            json.dump(data, fh)
-
+        return random.choice(files)
+        
     
     def picking_task_rl(self,\
                         chosen_file:str,\
@@ -455,7 +449,7 @@ class Simulator(object):
             text_context=text_context,
             model_hidden=self.model_hidden,
             num_eps=self.num_eps,
-            num_timesteps=self.num_timesteps,
+            num_steps = reward_fn.max_traj_length,
             **reward_ob
         )
         return config
@@ -468,7 +462,7 @@ class Simulator(object):
         else:
             neptune.init(self.project_name,backend=neptune.OfflineBackend())
 
-        exp_name = f'LearnedReward-{self.experiment_name}'
+        exp_name = f'{self.experiment_name}'
         if not train:
             exp_name = f'{exp_name}-test'
         neptune.create_experiment(name=exp_name, params=config)
@@ -484,7 +478,8 @@ class Simulator(object):
         # $ todo return Final position of the objects. 
         return gt_trajectory
 
-    def _get_rl_sim_state(self,data):
+    def _get_rl_sim_state(self):
+        data = {}
         array = self._getSimulatorState()
         data["joint_robot_position"] = array[0:6]
         data["joint_robot_velocity"] = array[6:12]
@@ -520,7 +515,7 @@ class Simulator(object):
 
     def _take_action_jv(self,joint_state,action):
         joint_vels = action[:6]    
-        joint_pos = (joint_vels/20) + joint_state['joint_robot_position']
+        joint_pos = (joint_vels) + joint_state['joint_robot_position']
         gripper_pos = 1 if joint_vels[-1] > 0.5 else 0
         action_step = [*joint_pos,gripper_pos]
         self._setJointVelocityFromTarget(action_step)
@@ -530,82 +525,86 @@ class Simulator(object):
         
     
     def run_pick_rl_episodes(self,data,reward_fn:RoboRewardFnMixin,agent:RobotAgent,train:bool=True):
-        text_input = data["voice"]
-        # $ make logger to run episode 
-        self.make_logger(reward_fn,text_input,train=train)
-        # $ Set size of traj based on RW fn Constraints
-        max_trajectory_size = reward_fn.max_traj_length
-        # $ Get Metadata about text
-        input_text_meta = self._getLanguateInformation(text_input, 1)
+        try:
+            text_input = data["voice"]
+            # $ make logger to run episode 
+            self.make_logger(reward_fn,text_input,train=train)
+            # $ Set size of traj based on RW fn Constraints
+            max_trajectory_size = reward_fn.max_traj_length
+            # $ Get Metadata about text
+            input_text_meta = self._getLanguateInformation(text_input, 1)
 
-        final_position = self.get_object_target_position(
-            data['ints'],data['floats'],data['target/id']
-        )
-        for episode in range(self.num_eps):
-            # $ Reset environment
-            print(f"Starting Episode {episode} ")
-            gt_trajectory = self._reset_rl_environment(data)
-            video_frames = []
-            states = []
-            actions = []
-            reached_goal = False
-            for step in range(max_trajectory_size):
-                # Get State of Robot
-                _,\
-                _,\
-                joint_state = self._get_rl_env_state()
-                video_frames.append(
-                    self._getCameraImage()
-                )    
-                joint_state['final_postion'] = final_position
-                # ! TODO
-                # $ predict action using policy IS JOINT velocity (JV)
-                action = agent.act(joint_state,timestep=step)
-                # $ JV is in rads/sec and PyRep runs at 20Hz so we can just simply divide by 20 and then add that to joint positions. 
-                # $ run action predicted by policy 
-                actions.append(action)
-                self._take_action_jv(joint_state,action)
-                # $ append state to trajectory. 
-                states.append(joint_state)
-                # $ measure if the current state is teminal state 
-                if self._is_terminal_state_pick_task():
-                    # $ if terminal state end episode
-                    reached_goal = True
-                    break
-
-            episode_perf_stats = self._getTargetPosition(data)
-            # $ run reward function and get reward values.
-            # TODO : Fill Up the Reward Function
-            reward = reward_fn.get_rewards(
-                text_input,dict(
-                    image_sequence = video_frames,
-                    trajectory = states
-                )
+            final_position = self.get_object_target_position(
+                data['ints'],data['floats'],data['target/id']
             )
-            norm_reward = RewardNormalizer.normalize_reward(reward,\
-                                            max_v=self.reward_max,\
-                                            min_v=self.reward_min)
-            scaledreward = norm_reward * self.reward_scaleup
-            ammt_rw = RewardNormalizer.ammortized_rw(scaledreward, len(states))
-            neptune.log_metric('is_success',episode,y=reached_goal)
-            neptune.log_metric('reward', episode, y=reward)
-            neptune.log_metric('scaled_reward', episode, y=scaledreward)                
-            # $ update the policy
-            if train:
-                self._observe_and_update_policy(agent,states,actions,ammt_rw,reached_goal)
-            
+            for episode in range(self.num_eps):
+                # $ Reset environment
+                print(f"Starting Episode {episode} ")
+                gt_trajectory = self._reset_rl_environment(data)
+                video_frames = []
+                states = []
+                actions = []
+                reached_goal = False
+                for step in range(max_trajectory_size):
+                    # Get State of Robot
+                    _,\
+                    _,\
+                    joint_state = self._get_rl_env_state()
+                    video_frames.append(
+                        self._getCameraImage()
+                    )    
+                    joint_state['final_postion'] = final_position
+                    # $ predict action using policy IS JOINT velocity (JV)
+                    action = agent.act(joint_state)
+                    # $ JV is in rads/sec and PyRep runs at 20Hz so we can just simply divide by 20 and then add that to joint positions. 
+                    # $ run action predicted by policy 
+                    actions.append(action)
+                    self._take_action_jv(joint_state,action)
+                    # $ append state to trajectory. 
+                    states.append(joint_state)
+                    # $ measure if the current state is teminal state 
+                    if self._is_terminal_state_pick_task():
+                        # $ if terminal state end episode
+                        reached_goal = True
+                        break
+
+                episode_perf_stats = self._getTargetPosition(data)
+                # $ run reward function and get reward values.
+                # TODO : Fill Up the Reward Function
+                reward = reward_fn.get_rewards(
+                    text_input,dict(
+                        image_sequence = video_frames,
+                        trajectory = states
+                    )
+                )
+                norm_reward = RewardNormalizer.normalize_reward(reward,\
+                                                max_v=self.reward_max,\
+                                                min_v=self.reward_min)
+                scaledreward = norm_reward * self.reward_scaleup
+                ammt_rw = RewardNormalizer.ammortized_rw(scaledreward, len(states))
+                neptune.log_metric('is_success',episode,y=reached_goal)
+                neptune.log_metric('reward', episode, y=reward)
+                neptune.log_metric('scaled_reward', episode, y=scaledreward)
+                neptune.log_metric('distance_to_obj',episode,y=episode_perf_stats['distance'])
+                # $ update the policy
+                if train:
+                    self._observe_and_update_policy(agent,states,actions,ammt_rw,reached_goal)
+        except KeyboardInterrupt as e:
+            print("Keyboard Interrupt Occured")
+            self.shutdown()
+            neptune.stop()
+            return 
     
     def _observe_and_update_policy(self,agent:RobotAgent,states,actions,rewards,reached_goal):
+        # $ Make agent update its states and then update its policies in the training step.
         for idx, rw_tup in enumerate(zip(states, actions,rewards)):
             state,action, rw = rw_tup
-            next_state = None
             done=False
-            if idx < len(states)-1:
-                next_state = states[idx+1]
-                if reached_goal: 
-                    done = True
-            agent.observe(state,action, rw.item(),next_state, done)
+            if idx == len(states)-1:
+                done = True
+            agent.observe(state,action, rw.item(), done)
         agent.update()
+        agent.reset()
 
     def evalDirect(self, runs, path="../GDrive/testdata/*_1.json"):
         files = glob.glob(path)
@@ -671,7 +670,13 @@ class Simulator(object):
                 simple.append(self.voice.basewords[word])
         return " ".join(simple)
 
-
+    def _sigint_handler(self,x,y):
+        print("Sigint Received")
+        print(x,y)
+        global sim 
+        self.shutdown()
+        neptune.stop()
+        exit()
 # if __name__ == "__main__":
 #     sim = Simulator()
 #     sim.evalDirect(runs=NUM_TESTED_DATA)
