@@ -675,11 +675,12 @@ def make_model(
   channel_configurations = [config for config in channel_configurations if config.name in use_channels]
   transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMETERS,channel_configurations=channel_configurations)
   if is_inference:
-    return RobotLearningRewardFunction(transformer_config,data_params=dataparams)
+    return RobotLearningRewardFunction(transformer_config,
+                                      max_video_len = max_video_len,\
+                                      max_traj_length = max_traj_length,\
+                                      data_params=dataparams)
   elif not is_multitask:
     return LGRRoboRewardLearner(transformer_config,\
-                                max_video_len = max_video_len,\
-                                max_traj_length = max_traj_length,\
                                 data_params=dataparams,\
                                 )
   else:

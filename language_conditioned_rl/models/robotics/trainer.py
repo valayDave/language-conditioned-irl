@@ -1,5 +1,6 @@
 # @Refactor From: Simon Stepputtis <sstepput@asu.edu>, Interactive Robotics Lab, Arizona State University
 
+import shutil
 from PIL import Image
 import matplotlib.pyplot as plt
 import os
@@ -47,6 +48,12 @@ DEFAULT_LOGGER_PROJECT_NAME = 'valay/LGR-RL-Robot'
 DEFAULT_EXPERIMENT_NAME = 'PICKING-Task-Agent'
 import signal
 
+def dir_exists(pth):
+    try:
+        os.stat(pth)
+        return True
+    except:
+        return False
 
 class Simulator(object):
     def __init__(self,\
@@ -59,6 +66,8 @@ class Simulator(object):
                 project_name=DEFAULT_LOGGER_PROJECT_NAME,\
                 experiment_name=DEFAULT_EXPERIMENT_NAME,\
                 api_token=None,\
+                update_episodically:bool=True,\
+                update_frequency:int=30,\
                 video_save_freq=200,\
                 video_save_dir='./video',\
                 log_every=100,\
@@ -69,7 +78,8 @@ class Simulator(object):
         self.pyrep.launch(scenepath, headless=headless)
         self.camera = VisionSensor("kinect_rgb_full")
         self.pyrep.start()
-
+        self.update_episodically = update_episodically
+        self.update_frequency = update_frequency
         self.model_hidden = model_hidden
         self.num_eps = num_eps
         self.reward_scaleup = reward_scaleup
@@ -95,6 +105,13 @@ class Simulator(object):
         self.shape_size_replacement["wjqQmB74rnr_2.json"] = "pour all of it into the large square basin"
         self.shape_size_replacement["LgVK8qXGowA_2.json"] = "fill a little into the big round bowl"
         self.shape_size_replacement["JZ90qm46ooP_2.json"] = "fill everything into the biggest rectangular bowl"
+        self._setup_video_dir()
+
+    def _setup_video_dir(self):
+        if dir_exists(self.video_save_dir):
+            shutil.rmtree(self.video_save_dir)
+        os.mkdir(self.video_save_dir)
+
 
     def loadNlpCSV(self, path):
         self.nlp_dict = {}
@@ -516,9 +533,9 @@ class Simulator(object):
     def _take_action_jv(self,joint_state,action):
         joint_vels = action[:6]    
         joint_pos = (joint_vels) + joint_state['joint_robot_position']
-        gripper_pos = 1 if joint_vels[-1] > 0.5 else 0
+        gripper_pos = 1 if joint_vels[-1] > 0 else 0
         action_step = [*joint_pos,gripper_pos]
-        self._setJointVelocityFromTarget(action_step)
+        self._setJointVelocityFromTarget_Direct(action_step)
 
     def _is_terminal_state_pick_task(self):
         return self._graspedObject()
@@ -539,7 +556,7 @@ class Simulator(object):
             )
             for episode in range(self.num_eps):
                 # $ Reset environment
-                print(f"Starting Episode {episode} ")
+                print(f"Starting Episode {episode}  With Steps {max_trajectory_size}")
                 gt_trajectory = self._reset_rl_environment(data)
                 video_frames = []
                 states = []
@@ -557,17 +574,21 @@ class Simulator(object):
                     # $ predict action using policy IS JOINT velocity (JV)
                     action = agent.act(joint_state)
                     # $ JV is in rads/sec and PyRep runs at 20Hz so we can just simply divide by 20 and then add that to joint positions. 
-                    # $ run action predicted by policy 
+                    # $ run action predicted by policy
                     actions.append(action)
                     self._take_action_jv(joint_state,action)
                     # $ append state to trajectory. 
                     states.append(joint_state)
+                    if not self.update_episodically:
+                        if step % self.update_frequency  == 0 and episode!=0:
+                            agent.update()
                     # $ measure if the current state is teminal state 
                     if self._is_terminal_state_pick_task():
                         # $ if terminal state end episode
                         reached_goal = True
                         break
-
+                if episode % self.video_save_freq ==0:
+                    self._save_episode_video(episode,video_frames)
                 episode_perf_stats = self._getTargetPosition(data)
                 # $ run reward function and get reward values.
                 # TODO : Fill Up the Reward Function
@@ -595,6 +616,17 @@ class Simulator(object):
             neptune.stop()
             return 
     
+    def _save_episode_video(self,episode:int,video_array:np.array,freq=20):
+        width,height= video_array[0].shape[0], video_array[0].shape[1]
+        path = os.path.join(self.video_save_dir,f'episode-{episode}.avi')
+        fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+        writer = cv2.VideoWriter(path, fourcc, 20, (640,480))
+        for i in range(0,len(video_array),freq):
+            x = video_array[i].astype('uint8')
+            img= cv2.resize(x,(640,480))
+            writer.write(img)
+        writer.release()
+
     def _observe_and_update_policy(self,agent:RobotAgent,states,actions,rewards,reached_goal):
         # $ Make agent update its states and then update its policies in the training step.
         for idx, rw_tup in enumerate(zip(states, actions,rewards)):

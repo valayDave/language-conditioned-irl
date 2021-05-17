@@ -144,7 +144,6 @@ class DDPG(object):
         return action
 
     def select_action(self, s_t, decay_epsilon=True):
-        # todo : figure if tensors grad associations is are causing issues.
         action = to_numpy(
             self.actor(to_tensor(np.array([s_t])))
         ).squeeze(0)
