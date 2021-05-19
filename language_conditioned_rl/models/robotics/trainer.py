@@ -532,10 +532,11 @@ class Simulator(object):
 
     def _take_action_jv(self,joint_state,action):
         joint_vels = action[:6]    
-        joint_pos = (joint_vels) + joint_state['joint_robot_position']
+        joint_pos = (joint_vels/20) + joint_state['joint_robot_position']
         gripper_pos = 1 if joint_vels[-1] > 0 else 0
         action_step = [*joint_pos,gripper_pos]
         self._setJointVelocityFromTarget_Direct(action_step)
+        self.pyrep.step()
 
     def _is_terminal_state_pick_task(self):
         return self._graspedObject()
@@ -591,7 +592,6 @@ class Simulator(object):
                     self._save_episode_video(episode,video_frames)
                 episode_perf_stats = self._getTargetPosition(data)
                 # $ run reward function and get reward values.
-                # TODO : Fill Up the Reward Function
                 reward = reward_fn.get_rewards(
                     text_input,dict(
                         image_sequence = video_frames,
@@ -613,8 +613,11 @@ class Simulator(object):
         except KeyboardInterrupt as e:
             print("Keyboard Interrupt Occured")
             self.shutdown()
+            neptune.log_artifact(self.video_save_dir)
             neptune.stop()
             return 
+        
+        neptune.log_artifact(self.video_save_dir)
     
     def _save_episode_video(self,episode:int,video_array:np.array,freq=20):
         width,height= video_array[0].shape[0], video_array[0].shape[1]
@@ -705,7 +708,7 @@ class Simulator(object):
     def _sigint_handler(self,x,y):
         print("Sigint Received")
         print(x,y)
-        global sim 
+        neptune.log_artifact(self.video_save_dir)
         self.shutdown()
         neptune.stop()
         exit()
