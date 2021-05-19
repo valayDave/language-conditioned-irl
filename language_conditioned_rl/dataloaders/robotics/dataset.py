@@ -89,6 +89,9 @@ USE_CHANNELS = [
     'text',
     'joint_gripper',
 ]
+DYNAMIC_CHANNELS = [
+    'joint_combined_vector'
+]
 
 def get_padding():
     return {

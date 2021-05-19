@@ -16,6 +16,7 @@ from .utils import \
 
 from .dataset import \
     GROUPNAMES,\
+    DYNAMIC_CHANNELS,\
     ContrastiveCollateFn,\
     MultiTaskContrastiveCollateFn,\
     is_present,\
@@ -182,7 +183,8 @@ class SentenceContrastiveDataset(Dataset):
     def load_sequences(seq,channels,mask=False):
         dd = {}
         for k in channels:
-            assert mask or k in seq.keys(), f"Channel {k} not found in the HDF5 Dataset Sequence"
+            if not mask:
+                assert k in seq.keys() or k in DYNAMIC_CHANNELS, f"Channel {k} not found in the HDF5 Dataset Sequence Or Not Found in {DYNAMIC_CHANNELS}"
             if k not in seq.keys():
                 continue
             dd[k] = np.array(seq[k])
