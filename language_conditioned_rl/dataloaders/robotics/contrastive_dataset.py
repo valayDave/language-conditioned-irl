@@ -113,6 +113,7 @@ class SentenceContrastiveDataset(Dataset):
         self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks),use_channels,mask=True)
         # $ Metadata Loading
         self.dataset_meta = pandas.read_csv(metapth)
+        self.use_channels = use_channels
         self.control_parameters = ContrastiveControlParameters.from_json(
             load_json_from_file(control_parameter_pth)
         )
@@ -202,7 +203,7 @@ class SentenceContrastiveDataset(Dataset):
         returns dictionary of ChannelData
         """
         channel_dict = {}
-        for k in self.sequences.keys():
+        for k in self.use_channels:
             mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
             seq = torch.from_numpy(self.sequences[k][index])
             if k == 'image_sequence' and self.normalize_images: # Monkey Patch
@@ -250,7 +251,8 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
         for i in range(len(self.sequences['joint_gripper'])):
             gp = self.sequences['joint_gripper'][i]
             jp = self.sequences['joint_robot_position'][i]
-            save_vectors.append(np.concatenate((gp,jp)))
+            conc_vec = np.concatenate((np.expand_dims(gp,1),jp),axis=None)
+            save_vectors.append(conc_vec)
         
         self.sequences[self.joint_channel_name] = save_vectors
         self.masks[self.joint_channel_name] = self.masks['joint_gripper']
