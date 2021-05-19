@@ -1,4 +1,5 @@
 import pytorch_lightning as pl 
+import json
 import torch
 import torch.nn as nn
 from typing import List, Tuple
@@ -16,12 +17,18 @@ from ..transformer import \
     PRETRAINED_MODEL
 
 from ..reward_model import DataAndOptimizerConf,RewardHeadWithOnlyBackbone
-from ...dataloaders.robotics.dataset import CONTINOUS_VALUE_DIMS
+from ...dataloaders.robotics.dataset import CONTINOUS_VALUE_DIMS, MAX_TEXT_LENGTH, MAX_TRAJ_LEN, MAX_VIDEO_FRAMES
+from ...dataloaders.robotics.utils import RoboDataUtils
 
 DISCRETE_EMBEDDING_SIZE = 128
 PATCH_SIZE=64
 PATCH_EMBEDDING_DIMS = 128
 IMAGE_SIZE = (256,256)
+
+
+def NEPTUNE_JSON_FIXER(json_str):
+    return json.loads(json_str.replace("'",'"').replace('None','null').replace('True','true').replace('False','false'))
+
 
 
 USE_CHANNELS = [
@@ -34,6 +41,8 @@ USE_CHANNELS = [
 ]
 
 GLOBAL_EMBEDDINGS = None
+
+GLOBAL_RESNET_BACKBONE = None
 
 def set_global_embed(embed_layer):
   global GLOBAL_EMBEDDINGS
@@ -71,6 +80,79 @@ class DetachedTextEmbeddingsPretrain(nn.Module):
   def forward(self, channel_seq):
     return make_embedding(channel_seq)
       
+
+class VisualBackbone(nn.Module):
+    r"""
+    THANK YOU : https://github.com/kdexd/virtex/blob/master/virtex/modules/visual_backbones.py
+    Base class for all visual backbones. All child classes can simply inherit
+    from :class:`~torch.nn.Module`, however this is kept here for uniform
+    type annotations.
+    """
+
+    def __init__(self, visual_feature_size: int):
+        super().__init__()
+        self.visual_feature_size = visual_feature_size
+
+
+class TorchvisionVisualBackbone(VisualBackbone):
+    r"""
+    A visual backbone from `Torchvision model zoo
+    <https://pytorch.org/docs/stable/torchvision/models.html>`_. Any model can
+    be specified using corresponding method name from the model zoo.
+    Parameters
+    ----------
+    name: str, optional (default = "resnet50")
+        Name of the model from Torchvision model zoo.
+    visual_feature_size: int, optional (default = 2048)
+        Size of the channel dimension of output visual features from forward pass.
+    pretrained: bool, optional (default = False)
+        Whether to load ImageNet pretrained weights from Torchvision.
+    frozen: float, optional (default = False)
+        Whether to keep all weights frozen during training.
+    """
+
+    def __init__(
+        self,
+        visual_feature_size: int = 2048,
+        pretrained: bool = False,
+        frozen: bool = False,
+    ):
+        super().__init__(visual_feature_size)
+        from torchvision.models import resnet18
+        self.cnn = resnet18(
+            pretrained, zero_init_residual=True
+        )
+        # Do nothing after the final residual stage.
+        self.cnn.fc = nn.Identity()
+
+        # Freeze all weights if specified.
+        if frozen:
+            for param in self.cnn.parameters():
+                param.requires_grad = False
+            self.cnn.eval()
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        r"""
+        Compute visual features for a batch of input images.
+        Parameters
+        ----------
+        image: torch.Tensor
+            Batch of input images. A tensor of shape
+            ``(batch_size, 3, height, width)``.
+        Returns
+        -------
+        torch.Tensor
+            A tensor of shape ``(batch_size, channels, height, width)``, for
+            example it will be ``(batch_size, 2048, 7, 7)`` for ResNet-50.
+        """
+
+        for idx, (name, layer) in enumerate(self.cnn.named_children()):
+            out = layer(image) if idx == 0 else layer(out)
+
+            # These are the spatial features we need.
+            if name == "layer4":
+                # shape: (batch_size, channels, height, width)
+                return out
 
 
 class LGRRoboRewardLearner(pl.LightningModule):
@@ -344,6 +426,98 @@ class LGRMulitTaskRoboRewardLearner(pl.LightningModule):
         optimizer, warmup, t_total, num_cycles=num_cycles)
     return [optimizer], [{'scheduler':lr_scheduler,'interval':self.data_params.LR_SCHEDULER_FREQUENCY}]
 
+class RoboRewardFnMixin(object):
+
+    def __init__(self,
+                 max_video_len = MAX_VIDEO_FRAMES,
+                 max_traj_length=MAX_TRAJ_LEN,
+                 max_text_len=MAX_TEXT_LENGTH,
+                 experiment_name=None,
+                 loaded_checkpoint=None,
+                 pretrained_model=PRETRAINED_MODEL):
+
+        from transformers import AutoTokenizer
+        self.data_utils = RoboDataUtils(
+          tokenizer = AutoTokenizer.from_pretrained(pretrained_model),
+          image_resize_dims=IMAGE_SIZE,
+          max_traj_len=max_traj_length,
+          max_txt_len=max_text_len
+        )
+        self.max_traj_length=max_traj_length
+        self.max_txt_len=max_text_len
+        self.experiment_name = experiment_name
+        self.loaded_checkpoint = loaded_checkpoint
+        self.max_video_len = max_video_len
+        self.use_channels = [c.name for c in self.model.config.channel_configurations]
+    
+    def get_rewards(self,text,states):
+      assert type(text) == str
+      assert type(states) == dict
+      assert 'image_sequence' in states
+      assert 'trajectory' in states
+      
+      text_ids, txt_msk = self.data_utils.encode_sentence(text)
+      channel_data_objects = [
+        ChannelData(
+          sequence=text_ids.unsqueeze(0), mask=txt_msk.unsqueeze(0),name='text'
+        )
+      ]
+      if 'image_sequence' in self.use_channels:
+        channel_data_objects.append(
+          ChannelData(
+            name='image_sequence',
+            sequence= self.data_utils.make_tensor_from_video(
+              states['image_sequence'],max_frames=self.max_video_len
+            ).unsqueeze(0)
+          )  
+        )
+      channel_data_objects.extend(self._make_trajectory(states))      
+      return self._get_rewards(channel_data_objects)
+    
+    def _get_rewards(self,channel_data:List[ChannelData]):
+      with torch.no_grad():
+        features,  _ = self(channel_data)
+        return self.get_reward_from_features(features)
+
+    def _make_trajectory(self,states):
+      trajectory_states = list(set(self.use_channels) - set(['text','image_sequence']))
+      assert set(trajectory_states).issubset(set(states['trajectory'][0].keys())),\
+         f"{set(trajectory_states)} Not a Subset of {set(states['trajectory'][0].keys())}"
+
+      if len(trajectory_states)  == 0:
+        return []
+      
+      trajectory_dict = self.data_utils.create_trajectory(
+        states['trajectory'],use_channels=self.use_channels
+      )
+      return [ChannelData(sequence=trajectory_dict[traj_chan].unsqueeze(0),name=traj_chan) for traj_chan in trajectory_dict]
+
+      
+
+
+
+
+
+class RobotLearningRewardFunction(RoboRewardFnMixin, LGRRoboRewardLearner):
+    def __init__(self,\
+                *args,\
+                max_video_len = MAX_VIDEO_FRAMES,\
+                max_traj_length=MAX_TRAJ_LEN,\
+                max_text_len=MAX_TEXT_LENGTH,\
+                experiment_name=None,\
+                loaded_checkpoint=None,\
+                pretrained_model=PRETRAINED_MODEL, **kwargs):
+        LGRRoboRewardLearner.__init__(self, *args, **kwargs)
+        RoboRewardFnMixin.__init__(self,
+                                  max_video_len = max_video_len,\
+                                  max_traj_length=max_traj_length,\
+                                  max_text_len=max_text_len,\
+                                  experiment_name=experiment_name,\
+                                  loaded_checkpoint=loaded_checkpoint,\
+                                  pretrained_model=pretrained_model)
+
+
+
 def make_model(
   use_channels = USE_CHANNELS,\
   CORE_TRANSFORMER_PARAMETERS = DEFAULT_OMNI_TRANSFORMER_PARAMS,\
@@ -354,7 +528,10 @@ def make_model(
   is_pc_grad:bool=False,\
   patch_size:int=PATCH_SIZE,\
   image_size:Tuple[int,int] = IMAGE_SIZE,\
+  max_video_len = MAX_VIDEO_FRAMES,\
+  max_traj_length=MAX_TRAJ_LEN,\
   detached_text_embed:bool=False,\
+  is_inference:bool=False,\
 ):
   video_channel = ChannelConfiguration(
     name='image_sequence',
@@ -497,10 +674,83 @@ def make_model(
   ]
   channel_configurations = [config for config in channel_configurations if config.name in use_channels]
   transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMETERS,channel_configurations=channel_configurations)
-  if not is_multitask:
-    return LGRRoboRewardLearner(transformer_config,data_params=dataparams)
+  if is_inference:
+    return RobotLearningRewardFunction(transformer_config,
+                                      max_video_len = max_video_len,\
+                                      max_traj_length = max_traj_length,\
+                                      data_params=dataparams)
+  elif not is_multitask:
+    return LGRRoboRewardLearner(transformer_config,\
+                                data_params=dataparams,\
+                                )
   else:
     return LGRMulitTaskRoboRewardLearner(
       transformer_config,pc_grad_loss=is_pc_grad,data_params=dataparams
     )
-  # return trans
+      
+
+
+
+def get_checkpoint(project_name='valay/Language-Grounded-Rewards-Robo',
+                experiment_name='LRO-89',
+                checkpoint_path='checkpoints/last.pt', \
+                base_path='model_checkpoints/',
+                api_token=None,):
+  import neptune
+  import os
+  import json
+  if api_token is None:
+      raise Exception("API Token Missing")
+
+  project = neptune.init(project_name,
+                          api_token=api_token
+                          )
+  my_exp = project.get_experiments(id=experiment_name)[0]
+  my_exp.download_artifact(checkpoint_path, destination_dir=base_path)
+  config = my_exp.get_parameters()
+  ckck_name = checkpoint_path.split('/')[1]
+  checkpoint = torch.load(os.path.join(
+      base_path, ckck_name), map_location=torch.device('cpu'))
+  
+  if 'channel_configurations' in config:
+    config['channel_configurations'] = NEPTUNE_JSON_FIXER(config['channel_configurations'])
+  if 'transformer_params' in config:
+    config['transformer_params']  = NEPTUNE_JSON_FIXER(config['transformer_params'])
+  if 'data_params' in config:
+    config['data_params']  = NEPTUNE_JSON_FIXER(config['data_params'])
+
+  return checkpoint,config
+
+
+def make_model_from_checkpoint(\
+                project_name='valay/Language-Grounded-Rewards-Robo',\
+                experiment_name='LRO-89',\
+                checkpoint_path='checkpoints/last.pt', \
+                base_path='model_checkpoints/',\
+                max_video_len = MAX_VIDEO_FRAMES,\
+                max_traj_length=MAX_TRAJ_LEN,\
+                api_token=None):
+  
+  checkpoint,config = get_checkpoint(
+                  project_name = project_name,
+                  experiment_name = experiment_name,
+                  checkpoint_path = checkpoint_path,
+                  base_path = base_path,
+                  api_token = api_token,
+                )
+  use_channels = [c['name'] for c in config['channel_configurations']]
+  
+  trans = make_model(
+    use_channels=use_channels,
+    CORE_TRANSFORMER_PARAMETERS=config['transformer_params'],
+    channel_embed_size=DISCRETE_EMBEDDING_SIZE,
+    patch_embed_size=PATCH_EMBEDDING_DIMS,
+    patch_size=PATCH_SIZE,
+    is_inference=True,
+    max_video_len =max_video_len,
+    max_traj_length =max_traj_length,
+  )
+  missing_keys, unexpected_keys = trans.load_state_dict(checkpoint['state_dict'])
+  trans.experiment_name = experiment_name
+  trans.loaded_checkpoint = checkpoint_path
+  return trans
