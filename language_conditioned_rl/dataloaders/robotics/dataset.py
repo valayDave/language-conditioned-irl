@@ -93,6 +93,11 @@ DYNAMIC_CHANNELS = [
     'joint_combined_vector'
 ]
 
+DYNAMIC_CHANNEL_MAP = {
+    'joint_combined_vector' : ['joint_robot_position','joint_gripper']
+}
+
+
 def get_padding():
     return {
         'image': 0,

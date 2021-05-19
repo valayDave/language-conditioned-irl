@@ -16,7 +16,7 @@ from .utils import \
 
 from .dataset import \
     GROUPNAMES,\
-    DYNAMIC_CHANNELS,\
+    DYNAMIC_CHANNEL_MAP,\
     ContrastiveCollateFn,\
     MultiTaskContrastiveCollateFn,\
     is_present,\
@@ -184,7 +184,11 @@ class SentenceContrastiveDataset(Dataset):
         dd = {}
         for k in channels:
             if not mask:
-                assert k in seq.keys() or k in DYNAMIC_CHANNELS, f"Channel {k} not found in the HDF5 Dataset Sequence Or Not Found in {DYNAMIC_CHANNELS}"
+                assert k in seq.keys() or k in DYNAMIC_CHANNEL_MAP, f"Channel {k} not found in the HDF5 Dataset Sequence Or Not Found in {DYNAMIC_CHANNEL_MAP.keys()}"
+            if k in DYNAMIC_CHANNEL_MAP: # Monkey Patch
+                for key in DYNAMIC_CHANNEL_MAP[k]:
+                    dd[key] = np.array(seq[key])
+                    
             if k not in seq.keys():
                 continue
             dd[k] = np.array(seq[k])
