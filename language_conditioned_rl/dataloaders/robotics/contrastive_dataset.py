@@ -252,7 +252,8 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
             gp = self.sequences['joint_gripper'][i]
             jp = self.sequences['joint_robot_position'][i]
             gripposv = np.expand_dims(gp,1)
-            conc_vec = np.concatenate((gripposv,jp),axis=1,dtype=np.float32)
+            conc_vec = np.array(np.concatenate((gripposv,jp),axis=1),dtype=np.float32)
+            
             save_vectors.append(conc_vec)
         
         self.sequences[self.joint_channel_name] = save_vectors
