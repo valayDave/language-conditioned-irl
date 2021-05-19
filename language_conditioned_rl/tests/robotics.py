@@ -27,7 +27,7 @@ from ..dataloaders.robotics.datamaker import \
     ContrastiveControlParameters,\
     SampleContrastingRule
 
-from ..dataloaders.robotics.contrastive_dataset import SentenceContrastiveDataset    
+from ..dataloaders.robotics.contrastive_dataset import JointsChannelsConcatDataset
 
 class RoboticsTestingDataset:
     pass
@@ -79,7 +79,7 @@ class TestSetCollateFn(ContrastiveCollateFn):
         return ContrastiveGenerator(core_d1_channels, core_d2_channels),rules,id_list
 
 
-class RoboTestDataset(SentenceContrastiveDataset):
+class RoboTestDataset(JointsChannelsConcatDataset):
     def __init__(self, contrastive_set_generated_folder: str,normalize_images:bool=False,use_channels=USE_CHANNELS, size: int=200) -> None:
         super().__init__(contrastive_set_generated_folder, \
                         normalize_images=normalize_images,\

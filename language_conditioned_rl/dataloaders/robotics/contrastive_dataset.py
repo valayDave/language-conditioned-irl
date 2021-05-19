@@ -204,7 +204,7 @@ class SentenceContrastiveDataset(Dataset):
                 for frame in seq:
                     seq_frames.append(self.norm_transform(frame))
                 seq = torch.stack(seq_frames)
-                
+            
             channel_dict[k] = ChannelData(
                 mask=mask,
                 sequence=seq,
@@ -222,6 +222,34 @@ class SentenceContrastiveDataset(Dataset):
     def collate_fn():
         return ContrastiveCollateFn()
 
+
+class JointsChannelsConcatDataset(SentenceContrastiveDataset):
+    """JointsChannelsConcatDataset 
+    Experiment to concatenate everything to one dimension. 
+    """
+    def __init__(self, 
+                contrastive_set_generated_folder:str,\
+                use_channels=USE_CHANNELS,\
+                train=True,\
+                normalize_images=False,\
+                use_original_contrastive_indices:bool=True,\
+                size:int=200) -> None:
+        super().__init__(contrastive_set_generated_folder, use_channels=use_channels, train=train, normalize_images=normalize_images, use_original_contrastive_indices=use_original_contrastive_indices, size=size)
+        self.joint_channel_name = 'joint_combined_vector'
+        self._create_concact_joint_channels()
+    
+    def _create_concact_joint_channels(self):
+        assert 'joint_gripper' in self.sequences and 'joint_robot_position' in self.sequences
+        save_vectors =[]
+        for i in range(len(self.sequences['joint_gripper'])):
+            gp = self.sequences['joint_gripper'][i]
+            jp = self.sequences['joint_robot_position'][i]
+            save_vectors.append(np.concatenate((gp,jp)))
+        
+        self.sequences[self.joint_channel_name] = save_vectors
+        self.masks[self.joint_channel_name] = self.masks['joint_gripper']
+        
+
 class TaskBasedSentenceContrastiveDataset(Dataset):
     """TaskBasedSentenceContrastiveDataset 
     Creates a dataset which returns rule specific contrastive loss tuples. 
@@ -235,7 +263,7 @@ class TaskBasedSentenceContrastiveDataset(Dataset):
                 size:int=200) -> None:
         assert len(rules) > 0, "Need Specific Rules To Instantiate Dataset"
         self.datasets = [
-            SentenceContrastiveDataset(
+            JointsChannelsConcatDataset(
                 contrastive_set_generated_folder,
                 use_channels=use_channels,
                 use_original_contrastive_indices=True,
