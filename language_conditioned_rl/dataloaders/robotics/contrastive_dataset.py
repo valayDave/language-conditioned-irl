@@ -245,20 +245,21 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
         self.joint_channel_name = 'joint_combined_vector'
         self.target_pos_vec = 'final_target_coordinates'
         self._create_concact_joint_channels()
-        self.final_target_coordinates()
+        self._create_final_target_coordinates()
 
     def _create_final_target_coordinates(self):
         if not self.target_pos_vec in self.use_channels:
             return
         assert 'tcp_position' in self.sequences
-        target_pos_vec = []
-        for x in self.sequences['tcp_position']:
-            final_pos = x[-1]
-            target_pos_vec.append(np.array([final_pos for _ in range(len(x))],dtype=np.float32))
         
-        self.sequences[self.target_pos_vec] = target_pos_vec
-        self.mask[self.target_pos_vec] = self.masks['tcp_position']
+        # target_pos_vec = []
+        # for x in self.sequences['tcp_position']:
+        #     final_pos = x[-1]
+        #     target_pos_vec.append(np.array([final_pos for _ in range(len(x))],dtype=np.float32))
         
+        # self.sequences[self.target_pos_vec] = target_pos_vec
+        # self.mask[self.target_pos_vec] = self.masks['tcp_position']
+
 
     def _create_concact_joint_channels(self):
         if not self.joint_channel_name in self.use_channels:
