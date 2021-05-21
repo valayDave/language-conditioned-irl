@@ -141,6 +141,9 @@ def map_to_contrastive_indexes_to_ids(collated_ids: List[Tuple[str, str]], index
     """
     mapped_arr = []
     for indexes in collated_ids:
+        if pid not in index_map or nid not in index_map:
+          print(f"Skipping {pid} {nid}")
+          continue
         pid, nid = indexes
         mapped_arr.append([index_map[pid], index_map[nid]])
     return mapped_arr
