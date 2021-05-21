@@ -149,10 +149,7 @@ class TorchRLAgent(TorchAgent,RLAgent):
 class DDPGAgent():
     # num_input_states (7+2) : 6 position + 1 gripper state + (x,y) position
     # prediction : JV + gripper state
-    def __init__(self,num_input_states=9,num_output_states=7):
-        pose_args = DDPGArgs()
-        pose_args.bounding_min = -1
-        pose_args.bounding_max= 1
+    def __init__(self,num_input_states=9,num_output_states=7, pose_args = DDPGArgs()):
         self.postion_predictor = DDPG(num_input_states,num_output_states,args=pose_args)
     
     def update(self):
@@ -191,11 +188,11 @@ class RobotAgent(TorchRLAgent):
     ------------
     JV + gripper state
     """
-    def __init__(self,learning_rate = 0.001,batch_size=64,collect_gradients=False,warmup=10):
+    def __init__(self,learning_rate = 0.001,batch_size=64,collect_gradients=False,warmup=10,pose_args = DDPGArgs()):
         super(RobotAgent,self).__init__(collect_gradients=collect_gradients,warmup=warmup)
         self.learning_rate = learning_rate
         # action should contain 1 extra value for gripper open close state
-        self.neural_network = DDPGAgent(num_input_states=9,num_output_states=7) # 1 DDPG Setup with Different Predictors. 
+        self.neural_network = DDPGAgent(num_input_states=9,num_output_states=7,pose_args = pose_args) # 1 DDPG Setup with Different Predictors. 
         self.agent_name ="DDPG_AGENT"
         self.input_state = 'joint_positions'
         self.output_action = 'joint_velocities'

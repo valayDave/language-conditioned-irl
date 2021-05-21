@@ -83,6 +83,7 @@ ALL_CHANNELS = [
 ]
 USE_CHANNELS = [
     # 'joint_gripper_velocity',
+    'tcp_position',
     'joint_robot_position',
     'joint_robot_velocity',
     'image_sequence',
