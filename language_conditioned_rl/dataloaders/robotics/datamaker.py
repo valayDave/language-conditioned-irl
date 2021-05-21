@@ -24,6 +24,7 @@ import json
 import zlib
 import os
 import random
+from functools import partial
 import pandas
 from metaflow import parallel_map
 import gc
@@ -318,7 +319,7 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
             self.logger.info(f"Completed Loading Path Chunk {idx}")
             # Make the Chunked Tensors from this
             filtered_objects = list(filter(
-                filter_smaller_video_frames,
+                partial(filter_smaller_video_frames,max_traj_len=self.roboutils.max_traj_len),
                 decompressd_objects
             ))
             object_tuple = self.roboutils.make_saveable_chunk(filtered_objects)
@@ -655,6 +656,8 @@ class PouringShapeSizeContrast(SampleContrastingRule):
             # Filter data based on the object's which didn't match demo 1's criterea and make training tuple. 
             t2obj_df_x = dataframe[dataframe['target_id'] == t2_targid]
             t2obj_df = t2obj_df_x[t2obj_df_x['pouring_amount'] == t1obj.iloc[0]['pouring_amount']]
+            if len(t2obj_df) ==0:
+                continue
             t2obj = t2obj_df.sample(1)
             idxb = t2obj.index[0]
             return_data.append(
@@ -740,6 +743,8 @@ class SameObjectPouringIntensityRule(SampleContrastingRule):
           
           for i in range(int(num_samples_per_rule/num_top_type_grp)):
               # Select any of indexes with different pouring_amount for same target
+              if len(amount_sets) == 1 or len(amount_sets) == 0:
+                  continue
               set0, set1 = amount_sets
               # Select any two indexes from the selected group of indexes.
               all_idxs.append((random.choice(set0), random.choice(set1)))
@@ -916,9 +921,13 @@ class HDF5ContrastiveSetCreator:
 
     def _partition_train_test(self):
         # $ create train test partition by using completely unseen demonstration in the test set.
+        avail_id_list = [x.decode('utf-8') for x in self.id_list]
+        data_filter = self.metadf[self.MAIN_IDENTIFIER_NAME].apply(lambda x: x in avail_id_list)
+        self.metadf = self.metadf[data_filter]
+        self.metadf.reset_index()
         train_filter_rows = random.sample(
             list(self.metadf.index), self.control_params.total_train_demos)
-        train_rows = self.metadf.iloc[train_filter_rows]
+        train_rows = self.metadf.loc[train_filter_rows]
         left_rows = self.metadf.drop(index=train_filter_rows)
         test_rows = left_rows.sample(self.control_params.total_test_demos)
         return train_rows, test_rows
@@ -967,17 +976,19 @@ class HDF5ContrastiveSetCreator:
         for chk in seq_chunks:
             for k in chk:
                 concat_seq_dict[k].append(chk[k])
-
+        
         for chk in msk_chunks:
             for k in chk:
                 concat_msk_dict[k].append(chk[k])
+        
         # $ Concatenate all the data. 
+        del seq_chunks
+        del msk_chunks
+        gc.collect()
         for k in concat_seq_dict:
             concat_seq_dict[k] = np.concatenate(concat_seq_dict[k])
-        
         for k in concat_msk_dict:
             concat_msk_dict[k] = np.concatenate(concat_msk_dict[k])
-        
         id_list = [i for ix in id_chunks for i in  ix]
         return concat_seq_dict,concat_msk_dict,sorted(unique_idxes),id_list
 
