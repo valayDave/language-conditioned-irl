@@ -246,6 +246,8 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
         self._create_concact_joint_channels()
     
     def _create_concact_joint_channels(self):
+        if not self.joint_channel_name in self.use_channels:
+            return
         assert 'joint_gripper' in self.sequences and 'joint_robot_position' in self.sequences
         save_vectors =[]
         for i in range(len(self.sequences['joint_gripper'])):
