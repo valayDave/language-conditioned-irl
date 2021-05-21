@@ -620,10 +620,18 @@ def make_model(
   tcp_position_channel = ChannelConfiguration(
       name='tcp_position',
       channel_type='continous',
-      input_dim=CONTINOUS_VALUE_DIMS['tcp_linear_velocity'],
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_position'],
       embedding_layer =None,
       no_embedding=True,
       use_position_embed = True,
+  )
+  final_target_coordinates_channel = ChannelConfiguration(
+      name='final_target_coordinates',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_position'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = False,
   )
 
   tcp_target_orientation_channel = ChannelConfiguration(
@@ -659,7 +667,9 @@ def make_model(
     joint_robot_position_channel,
     joint_robot_velocity_channel,
     video_channel,
-    joint_combined_vector
+    tcp_position_channel,
+    joint_combined_vector,
+    final_target_coordinates_channel
   ]
   for f in FILTER_CHANNELS:
     f.route_to_everything = False
@@ -679,7 +689,8 @@ def make_model(
       tcp_position_channel,
       tcp_target_orientation_channel,
       image_channel,
-      joint_combined_vector
+      joint_combined_vector,
+      final_target_coordinates_channel
   ]
   channel_configurations = [config for config in channel_configurations if config.name in use_channels]
   transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMETERS,channel_configurations=channel_configurations)

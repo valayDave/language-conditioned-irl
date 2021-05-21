@@ -94,7 +94,8 @@ DYNAMIC_CHANNELS = [
 ]
 
 DYNAMIC_CHANNEL_MAP = {
-    'joint_combined_vector' : ['joint_robot_position','joint_gripper']
+    'joint_combined_vector' : ['joint_robot_position','joint_gripper'],
+    'final_target_coordinates' : ['tcp_position'],
 }
 
 
