@@ -532,7 +532,6 @@ def make_model(
   max_traj_length=MAX_TRAJ_LEN,\
   detached_text_embed:bool=False,\
   is_inference:bool=False,\
-  final_coord_channel_size:int=10,\
 ):
   video_channel = ChannelConfiguration(
     name='image_sequence',
@@ -626,10 +625,11 @@ def make_model(
       no_embedding=True,
       use_position_embed = True,
   )
+  final_coord_channel_size = 1
   final_target_coordinates_channel = ChannelConfiguration(
       name='final_target_coordinates',
       channel_type='continous',
-      input_dim=final_coord_channel_size,
+      input_dim= final_coord_channel_size,
       embedding_layer =None,
       no_embedding=True,
       use_position_embed = False,
