@@ -136,6 +136,17 @@ def get_hd5_dtypes():
     }
 
 
+def decompress_json(data, key):
+    cache_val = json.loads(zlib.decompress(base64.b64decode(data)))
+    cache_val['main_name'] = key
+    return cache_val
+
+def load_and_decompress(json_pth):
+    loaded_obj = load_json_from_file(json_pth)
+    file_name = json_pth.split('/')[-1].split('.json')[0]
+    decompressed_object = decompress_json(list(loaded_obj.values())[0], file_name)
+    return decompressed_object
+
 class H5DataCreatorMainDataCreator:
 
     def __init__(self,
@@ -170,7 +181,7 @@ class H5DataCreatorMainDataCreator:
             loaded_obj = load_json_from_file(json_pth)
             assert 'samples' in loaded_obj
             decompressd_objects = parallel_map(
-                lambda x: self.decompress_json(loaded_obj[x], x), loaded_obj['samples'])
+                lambda x: decompress_json(loaded_obj[x], x), loaded_obj['samples'])
             # Make the Chunked Tensors from this
             object_tuple = self.roboutils.make_saveable_chunk(
                 decompressd_objects)
@@ -261,6 +272,7 @@ class H5DataCreatorMainDataCreator:
         # self.final_id_list.extend(id_list)
         return True
 
+
 class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
 
     META_EXTRACTION_KEYS = [
@@ -270,20 +282,11 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
         'target/id',
         'target/type',
         'amount',
-        'main_name'
+        'main_name',
+        'floats'
     ]
     
-    def decompress_json(self, data, key):
-        cache_val = json.loads(zlib.decompress(base64.b64decode(data)))
-        cache_val['main_name'] = key
-        return cache_val
-
-    def load_and_decompress(self,json_pth):
-        loaded_obj = load_json_from_file(json_pth)
-        file_name = json_pth.split('/')[-1].split('.json')[0]
-        decompressed_object = self.decompress_json(list(loaded_obj.values())[0], file_name)
-        return decompressed_object
-
+    
     @staticmethod
     def _make_list_chunks(lst, n):
         """Yield successive n-sized chunks from lst."""
@@ -301,6 +304,8 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
     
     def build(self,chunk_size=20):
         def filter_smaller_video_frames(robo_data_dict,max_num_video_frames=MAX_VIDEO_FRAMES,max_traj_len=MAX_TRAJ_LEN):
+            if robo_data_dict is None:
+                return False
             if 'image_sequence' in robo_data_dict:
                 if len(robo_data_dict['image_sequence']) < max_num_video_frames:
                     return False
@@ -315,24 +320,26 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
         main_meta_df = []
         for idx,json_pth_chunk in enumerate(file_chunks):
 
-            decompressd_objects = parallel_map(lambda x : self.load_and_decompress(x),json_pth_chunk)
+            decompressd_objects = parallel_map(lambda x : load_and_decompress(x),json_pth_chunk)
             self.logger.info(f"Completed Loading Path Chunk {idx}")
             # Make the Chunked Tensors from this
             filtered_objects = list(filter(
                 partial(filter_smaller_video_frames,max_traj_len=self.roboutils.max_traj_len),
                 decompressd_objects
             ))
-            object_tuple = self.roboutils.make_saveable_chunk(filtered_objects)
-            sequence_dict, mask_dict, id_list = object_tuple
-            if self.hf is None:
-                self._create_core_structures(sequence_dict, mask_dict, id_list)
-            else:
-                self._append_to_file(sequence_dict, mask_dict, id_list)
-            main_meta_df.append(
-                self._make_metadf(decompressd_objects)
-            )
+            if len(filtered_objects) > 0:
+                object_tuple = self.roboutils.make_saveable_chunk(filtered_objects)
+                sequence_dict, mask_dict, id_list = object_tuple
+                if self.hf is None:
+                    self._create_core_structures(sequence_dict, mask_dict, id_list)
+                else:
+                    self._append_to_file(sequence_dict, mask_dict, id_list)
+                main_meta_df.append(
+                    self._make_metadf(filtered_objects)
+                )
+                del object_tuple
+                del filtered_objects
             del decompressd_objects
-            del object_tuple
             gc.collect()
         self.close()
         concat_df = pandas.concat(main_meta_df)
@@ -860,10 +867,12 @@ class HDF5ContrastiveSetCreator:
         'voice',
         'target/id',
         'target/type',
-        'amount'
+        'amount',
+        'floats'
     ]
 
     MAPPING_COLUMNS = {
+        'floats' : 'object_postions_and_pose',
         'phase': 'demo_type',
         'ints': 'object_meta',
         'num_bowls': 'num_bowls',
@@ -885,7 +894,8 @@ class HDF5ContrastiveSetCreator:
         'voice',
         'target_id',
         'target_type',
-        'pouring_amount'
+        'pouring_amount',
+        'object_postions_and_pose'
     ]
 
     MAIN_IDENTIFIER_NAME = 'demo_name'
