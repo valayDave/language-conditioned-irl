@@ -294,7 +294,7 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
         correlated_final_position_list = np.stack(id_fixed_positions)
         position_masks = np.stack(final_masks)
         self.max_position_set =  position_masks.shape[1]
-        self.sequences[self.target_pos_vec] = correlated_final_position_list
+        self.sequences[self.target_pos_vec] = np.expand_dims(correlated_final_position_list,2)
         self.masks[self.target_pos_vec] = position_masks
         
 
