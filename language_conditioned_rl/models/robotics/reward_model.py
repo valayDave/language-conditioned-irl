@@ -617,11 +617,19 @@ def make_model(
       no_embedding=True,
       use_position_embed = True,
   )
-
   tcp_position_channel = ChannelConfiguration(
       name='tcp_position',
       channel_type='continous',
-      input_dim=CONTINOUS_VALUE_DIMS['tcp_linear_velocity'],
+      input_dim=CONTINOUS_VALUE_DIMS['tcp_position'],
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
+  final_coord_channel_size = 1
+  final_target_coordinates_channel = ChannelConfiguration(
+      name='final_target_coordinates',
+      channel_type='continous',
+      input_dim= final_coord_channel_size,
       embedding_layer =None,
       no_embedding=True,
       use_position_embed = True,
@@ -646,12 +654,23 @@ def make_model(
       embedding_layer = txt_emb_layer if not detached_text_embed else DetachedTextEmbeddingsPretrain(),
       use_position_embed=True,
   )
+  joint_combined_vector = ChannelConfiguration(
+      name='joint_combined_vector',
+      channel_type='continous',
+      input_dim=CONTINOUS_VALUE_DIMS['joint_robot_position']+1,# For robot gripper state
+      embedding_layer =None,
+      no_embedding=True,
+      use_position_embed = True,
+  )
   # USE_CHANNEL_CONFIG 
   FILTER_CHANNELS = [
     joint_gripper_channel,
     joint_robot_position_channel,
     joint_robot_velocity_channel,
-    video_channel
+    video_channel,
+    tcp_position_channel,
+    joint_combined_vector,
+    final_target_coordinates_channel
   ]
   for f in FILTER_CHANNELS:
     f.route_to_everything = False
@@ -670,7 +689,9 @@ def make_model(
       tcp_orientation_channel,
       tcp_position_channel,
       tcp_target_orientation_channel,
-      image_channel
+      image_channel,
+      joint_combined_vector,
+      final_target_coordinates_channel
   ]
   channel_configurations = [config for config in channel_configurations if config.name in use_channels]
   transformer_config = OmniTransformerCoreConfig(**CORE_TRANSFORMER_PARAMETERS,channel_configurations=channel_configurations)

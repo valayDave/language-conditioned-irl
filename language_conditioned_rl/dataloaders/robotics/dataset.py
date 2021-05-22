@@ -83,13 +83,21 @@ ALL_CHANNELS = [
 ]
 USE_CHANNELS = [
     # 'joint_gripper_velocity',
-    'tcp_position',
     'joint_robot_position',
     'joint_robot_velocity',
     'image_sequence',
     'text',
     'joint_gripper',
 ]
+DYNAMIC_CHANNELS = [
+    'joint_combined_vector'
+]
+
+DYNAMIC_CHANNEL_MAP = {
+    'joint_combined_vector' : ['joint_robot_position','joint_gripper'],
+    'final_target_coordinates' : ['tcp_position'],
+}
+
 
 def get_padding():
     return {
@@ -135,6 +143,9 @@ def map_to_contrastive_indexes_to_ids(collated_ids: List[Tuple[str, str]], index
     mapped_arr = []
     for indexes in collated_ids:
         pid, nid = indexes
+        if pid not in index_map or nid not in index_map:
+          print(f"Skipping {pid} {nid}")
+          continue
         mapped_arr.append([index_map[pid], index_map[nid]])
     return mapped_arr
 
