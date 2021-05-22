@@ -251,6 +251,7 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
         super().__init__(contrastive_set_generated_folder, use_channels=use_channels, train=train, normalize_images=normalize_images, use_original_contrastive_indices=use_original_contrastive_indices, size=size)
         self.joint_channel_name = 'joint_combined_vector'
         self.target_pos_vec = 'final_target_coordinates'
+        self.max_position_set = None
         self._create_concact_joint_channels()
         self._create_final_target_coordinates()
 
@@ -292,6 +293,7 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
 
         correlated_final_position_list = np.stack(id_fixed_positions)
         position_masks = np.stack(final_masks)
+        self.max_position_set =  position_masks.shape[1]
         self.sequences[self.target_pos_vec] = correlated_final_position_list
         self.masks[self.target_pos_vec] = position_masks
         
