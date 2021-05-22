@@ -7,6 +7,7 @@ import os
 import h5py
 from typing import List
 import matplotlib as plt
+import json
 
 
 from ..channel import ChannelData
@@ -181,6 +182,12 @@ class SentenceContrastiveDataset(Dataset):
         return all_indices , rule_distribution
     
     @staticmethod
+    def _make_list_chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+    
+    @staticmethod
     def load_sequences(seq,channels,mask=False):
         dd = {}
         for k in channels:
@@ -251,14 +258,43 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
         if not self.target_pos_vec in self.use_channels:
             return
         assert 'tcp_position' in self.sequences
+        dfx = self.dataset_meta['object_postions_and_pose'].apply(lambda x:len(np.array(json.loads(x)))/3)
+        max_obj_vals = int(dfx.max())
+        id_fixed_positions = []        
+        final_masks = []
+        for ixx in self.id_list:
+            ixp = ixx.decode('utf-8')
+            # Extract values from the dataset
+            r = self.dataset_meta[self.dataset_meta['demo_name'] == ixp].iloc[0]
+            positions = json.loads(r['object_postions_and_pose'])
+            objects = json.loads(r['object_meta'])[2:]
+            main_id = r['target_id']
+            # make chunks and correlate and make new array with first element as the target object
+            chunked_positions = list(self._make_list_chunks(positions,3))
+            new_adjusted_pos_arr = []
+            for obid,pos_chunk in zip(objects,chunked_positions):
+                x,y,_ = pos_chunk
+                if obid == main_id:
+                    tt = [x,y]
+                    tt.extend(new_adjusted_pos_arr)
+                    new_adjusted_pos_arr = tt
+                else:
+                    new_adjusted_pos_arr.extend([x,y])
+            
+            ob_mask_arr = [1 for _ in len(new_adjusted_pos_arr)]
+            padding_amt = max_obj_vals*2 - len(new_adjusted_pos_arr)
+            padding = [0 for _ in range(padding_amt)]
+            new_adjusted_pos_arr.extend(padding)
+            ob_mask_arr.extend(padding)
+            
+            final_masks.append(np.array(ob_mask_arr,dtype=np.int32))
+            id_fixed_positions.append(np.array(new_adjusted_pos_arr,dtype=np.float32))
+
+        correlated_final_position_list = np.stack(id_fixed_positions)
+        position_masks = np.stack(final_masks)
+        self.sequences[self.target_pos_vec] = correlated_final_position_list
+        self.masks[self.target_pos_vec] = position_masks
         
-        # target_pos_vec = []
-        # for x in self.sequences['tcp_position']:
-        #     final_pos = x[-1]
-        #     target_pos_vec.append(np.array([final_pos for _ in range(len(x))],dtype=np.float32))
-        
-        # self.sequences[self.target_pos_vec] = target_pos_vec
-        # self.mask[self.target_pos_vec] = self.masks['tcp_position']
 
 
     def _create_concact_joint_channels(self):
