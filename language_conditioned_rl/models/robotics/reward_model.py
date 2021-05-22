@@ -632,7 +632,7 @@ def make_model(
       input_dim= final_coord_channel_size,
       embedding_layer =None,
       no_embedding=True,
-      use_position_embed = False,
+      use_position_embed = True,
   )
 
   tcp_target_orientation_channel = ChannelConfiguration(
