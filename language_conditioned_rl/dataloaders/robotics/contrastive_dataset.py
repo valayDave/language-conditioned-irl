@@ -281,7 +281,7 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
                 else:
                     new_adjusted_pos_arr.extend([x,y])
             
-            ob_mask_arr = [1 for _ in len(new_adjusted_pos_arr)]
+            ob_mask_arr = [1 for _ in range(len(new_adjusted_pos_arr))]
             padding_amt = max_obj_vals*2 - len(new_adjusted_pos_arr)
             padding = [0 for _ in range(padding_amt)]
             new_adjusted_pos_arr.extend(padding)
