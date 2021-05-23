@@ -670,6 +670,7 @@ def make_model(
     video_channel,
     tcp_position_channel,
     joint_combined_vector,
+    final_target_coordinates_channel
   ]
   for f in FILTER_CHANNELS:
     f.route_to_everything = False
