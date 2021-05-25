@@ -552,6 +552,7 @@ class Simulator(object):
         final_position = self.get_object_target_position(
             data['ints'],data['floats'],data['target/id']
         )
+        gt_trajectory = self._reset_rl_environment(data)
         for action,step in zip(trajectory,range(num_steps)):
             # Get State of Robot
             _,\
