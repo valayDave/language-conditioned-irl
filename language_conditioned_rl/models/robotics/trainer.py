@@ -540,7 +540,45 @@ class Simulator(object):
 
     def _is_terminal_state_pick_task(self):
         return self._graspedObject()
-        
+
+    def simulate_trajectory(self,data:dict,trajectory:np.ndarray,):
+        assert len(trajectory.shape) == 2, "Need 2d Trajectory Vector"
+        assert trajectory.shape[1] == 7, "Need 6 DOF + Gripper state as vector"
+        num_steps, _  = trajectory.shape
+        text_input = data["voice"]
+        video_frames = []
+        states = []
+        reached_goal = False
+        final_position = self.get_object_target_position(
+            data['ints'],data['floats'],data['target/id']
+        )
+        for action,step in zip(trajectory,range(num_steps)):
+            # Get State of Robot
+            _,\
+            _,\
+            joint_state = self._get_rl_env_state()
+            video_frames.append(
+                self._getCameraImage()
+            )    
+            joint_state['final_postion'] = final_position
+            # $ predict action using policy IS JOINT velocity (JV)
+            # $ JV is in rads/sec and PyRep runs at 20Hz so we can just simply divide by 20 and then add that to joint positions. 
+            # $ run action predicted by policy
+            self._take_action_jv(joint_state,action)
+            # $ append state to trajectory. 
+            states.append(joint_state)
+            # $ measure if the current state is teminal state 
+            if self._is_terminal_state_pick_task():
+                # $ if terminal state end episode
+                reached_goal = True
+                break
+        episode_perf_stats = self._getTargetPosition(data)
+
+        reward_fn_dict = dict(
+            trajectory = states,
+            image_sequence = video_frames,
+        )
+        return reward_fn_dict,episode_perf_stats,reached_goal,text_input
     
     def run_pick_rl_episodes(self,data,reward_fn:RoboRewardFnMixin,agent:RobotAgent,train:bool=True):
         try:
@@ -640,63 +678,6 @@ class Simulator(object):
             agent.observe(state,action, rw.item(), done)
         agent.update()
         agent.reset()
-
-    def evalDirect(self, runs, path="../GDrive/testdata/*_1.json"):
-        files = glob.glob(path)
-        files = files[:runs]
-        files = [f[:-6] for f in files]
-        data = {}
-        s_p1, e_data = self.valPhase1(files)
-        data["phase_1"] = e_data
-
-        with open("val_result.json", "w") as fh:
-            json.dump(data, fh)
-
-    def _generateEnvironment(self):
-        def genPosition(prev):
-            px = 0
-            py = 0
-            done = False
-            while not done:
-                done = True
-                px = np.random.uniform(-0.9, 0.35)
-                py = np.random.uniform(-0.9, 0.35)
-                dist = np.sqrt(px**2 + py**2)
-                if dist < 0.5 or dist > 0.9:
-                    done = False
-                for o in prev:
-                    if np.sqrt((px - o[0])**2 + (py - o[1])**2) < 0.25:
-                        done = False
-                if px > 0 and py > 0:
-                    done = False
-                angle = -45
-                r_px = px * np.cos(np.deg2rad(angle)) + \
-                    py * np.sin(np.deg2rad(angle))
-                r_py = py * np.cos(np.deg2rad(angle)) - \
-                    px * np.sin(np.deg2rad(angle))
-                if r_py > 0.075:
-                    done = False
-            return [px, py]
-        self._setRobotJoints(np.deg2rad(DEFAULT_UR5_JOINTS))
-
-        ncups = np.random.randint(1, 3)
-        nbowls = np.random.randint(ncups, 5)
-        bowls = np.random.choice(20, size=nbowls, replace=False) + 1
-        cups = np.random.choice(3, size=ncups, replace=False) + 1
-        ints = [nbowls, ncups] + bowls.tolist() + cups.tolist()
-        floats = []
-
-        prev = []
-        for i in range(nbowls + ncups):
-            prev.append(genPosition(prev))
-            floats += prev[-1]
-            if i < nbowls and bowls[i] > 10:
-                floats += [np.random.uniform(-math.pi/4.0,  math.pi/4.0)]
-            else:
-                floats += [0.0]
-
-        self._createEnvironment(ints, floats)
-        return ints, floats
 
     def simplifyVoice(self, voice):
         simple = []

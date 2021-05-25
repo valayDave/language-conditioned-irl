@@ -13,6 +13,7 @@ from torch.utils.data.dataset import Dataset
 import sys
 
 from .DDPG.ddpg import DDPG,DDPGArgs
+from .cmaes_agent import GaussianModel,DTYPE
 
 import torch
 from typing import List
@@ -228,3 +229,19 @@ class RobotAgent(TorchRLAgent):
 
     def act(self,state_t:dict):
        return self.neural_network.select_action(self._get_state_vector(state_t))
+
+
+
+"""
+CMAEs 
+"""
+class CMAESAgent:
+    def __init__(self,num_gaussians) -> None:
+        self.DOFNAMES = ("Base","Shoulder","Ellbow","Wrist1","Wrist2","Wrist3","Gripper")
+        self.basismodel = GaussianModel(degree=num_gaussians, scale=0.012, observed_dof_names=self.DOFNAMES)
+        self.num_gaussians = num_gaussians
+
+    def get_robot_trajectory(self,trajectory_length:int,coefficients:np.ndarray):
+        assert len(coefficients) == len(self.DOFNAMES)*self.num_gaussians, "coefficients should be a vector of size: len(dof) x num_gaussians"
+        data_range = np.linspace(0, 1, trajectory_length, dtype=DTYPE)
+        return self.basismodel.apply_coefficients(data_range,coefficients)
