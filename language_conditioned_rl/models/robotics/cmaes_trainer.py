@@ -9,7 +9,9 @@ from .trainer import Simulator,\
 import json
 import neptune
 import numpy as np 
+import gc
 import cv2
+from metaflow import parallel_map
 from .reward_model import RoboRewardFnMixin
 from .agent import RobotAgent,CMAESAgent
 from .utils import Voice
@@ -18,9 +20,43 @@ import os
 
 DEFAULT_EXPERIMENT_NAME = 'CMAES-Experiments'
 
-# todo : this will have a parameterized policy created from the function
-def run_simulation_episode(simulator_args:dict,):
-    pass
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+# Simulates a list of trajectories. 
+def run_simulation_episode(idx:int,trajectories:List[np.array],simulator_args:dict,episode_dict:dict):
+    simulator = Simulator(**simulator_args)
+    data_tups = []
+    for trajectory in trajectories:
+        reward_fn_dict,episode_perf_stats,reached_goal,text_input = simulator.simulate_trajectory(episode_dict,trajectory)
+        data_tups.append(
+            (idx,trajectory,reward_fn_dict,episode_perf_stats,reached_goal,text_input)
+        )
+    simulator.shutdown()
+    return data_tups
+
+def collect_evaluations_parallel(trajectories:List,episode_dict:dict,simulator_args:dict,reward_fn:RoboRewardFnMixin,num_procs=4):
+    traj_chunks = [ (idx,chunk) for idx,chunk in enumerate(chunks(trajectories,int(len(trajectories)/num_procs)))]
+    # Runs the episodes in parallel and make list of lists
+    data_tuple_lists = parallel_map(lambda x: run_simulation_episode(x[0],x[1],simulator_args,episode_dict),traj_chunks,max_parallel=num_procs)
+    data_tuple_lists = [x for d in data_tuple_lists for x in d]
+    evaluation_results = []
+    for datatuple in data_tuple_lists:
+        idx,trajectory,reward_fn_dict,episode_perf_stats,reached_goal,text_input = datatuple
+        reward_value = reward_fn.get_rewards(text_input,reward_fn_dict)
+        print("Reward for Trajectory : ",reward_value.squeeze(0).numpy()[0],idx)
+        evaluation_results.append(
+            (
+                reward_fn_dict,
+                episode_perf_stats,
+                reached_goal,
+                text_input,
+                reward_value.squeeze(0).numpy()[0]
+            )
+        )
+    return evaluation_results
 
 
 def collect_evaluations(trajectories:List,episode_dict:dict,simulator_args:dict,reward_fn:RoboRewardFnMixin):
@@ -62,7 +98,8 @@ class CMAESSimulation:
         self.simulator_args = dict(
             args=args,
             scenepath=scenepath,
-            headless=True
+            headless=True,
+            no_video=True,
         )
         self.api_token=api_token
         self.video_save_dir=video_save_dir
@@ -76,19 +113,6 @@ class CMAESSimulation:
             shutil.rmtree(self.video_save_dir)
         os.mkdir(self.video_save_dir)
 
-    def picking_task_cmaes(self,
-                           chosen_file: str,
-                           reward_fn: RoboRewardFnMixin,
-                            num_gaussians:int=50,
-                            max_iter:int=2000,
-                            population_size:int=100):
-        with open(chosen_file, "r") as fh:
-            data = json.load(fh)
-        self.run_pick_cmaes_episodes(data,\
-                                    reward_fn,\
-                                    max_iter=max_iter,\
-                                    num_gaussians=num_gaussians,\
-                                    population_size=population_size)
 
     def get_core_config(self,reward_fn:RoboRewardFnMixin,text_context:str=None):
         ENV = "Picking Task"
@@ -169,30 +193,69 @@ class CMAESSimulation:
             img= cv2.resize(x,(640,480))
             writer.write(img)
         writer.release()
+        return path
 
 
     def _log_values(self,evaluated_trajectories,generation_number:int):
         print(f"Saving Values For Generation : {generation_number}")
         rewards = []
+        write_paths = []
+        goals = []
+        distances = []
         for idx,trajtup in enumerate(evaluated_trajectories):
             reward_fn_dict,\
             episode_perf_stats,\
             reached_goal,\
             text_input,\
             reward = trajtup
-            self.save_generation_video(generation_number,idx,reward_fn_dict['image_sequence'],video_save_dir=self.video_save_dir)
+            goals.append(reached_goal)
+            write_path = self.save_generation_video(generation_number,idx,reward_fn_dict['image_sequence'],video_save_dir=self.video_save_dir)
+            write_paths.append(write_path)
             neptune.log_metric(f'is_success-gen-{generation_number}', idx, y=reached_goal)
             neptune.log_metric(f'reward-gen-{generation_number}', idx, y=reward)
             neptune.log_metric(f'distance_to_obj-gen-{generation_number}', idx,
                                 y=episode_perf_stats['distance'])
+            distances.append(episode_perf_stats['distance'])
             rewards.append(reward)
+        average_reward = sum(rewards)/len(rewards)
+        avg_dist = sum(distances)/len(distances)
+        neptune.log_metric(f'total-is_success', generation_number, y=sum(goals))
+        neptune.log_metric(f'average-reward-gen', generation_number, y=average_reward)
+        neptune.log_metric(f'max-reward-gen', generation_number, y=max(rewards))
+        neptune.log_metric(f'mix-reward-gen', generation_number, y= min(rewards))
+        neptune.log_metric(f'average-distance_to_obj', generation_number,y=avg_dist)
+        neptune.log_metric(f'max-distance_to_obj', generation_number,y=max(distances))
+        neptune.log_metric(f'mix-distance_to_obj', generation_number,y=min(distances))
+        
+        for p in write_paths:
+            neptune.log_artifact(p)
+
         return rewards
     
+    def picking_task_cmaes(self,
+                           chosen_file: str,
+                           reward_fn: RoboRewardFnMixin,
+                            num_gaussians:int=50,
+                            max_iter:int=2000,
+                            num_parallel_procs:int=4,
+                            is_parallel:bool=False,
+                            population_size:int=100):
+        with open(chosen_file, "r") as fh:
+            data = json.load(fh)
+        self.run_pick_cmaes_episodes(data,\
+                                    reward_fn,\
+                                    max_iter=max_iter,\
+                                    is_parallel=is_parallel,\
+                                    num_parallel_procs=num_parallel_procs,\
+                                    num_gaussians=num_gaussians,\
+                                    population_size=population_size)
     
     def run_pick_cmaes_episodes(self,
                                 data,
                                 reward_fn: RoboRewardFnMixin,
                                 num_gaussians:int=50,
+                                is_parallel:bool=False,\
+                                num_parallel_procs:int=4,\
                                 max_iter:int=2000,
                                 population_size:int=100):
         try:
@@ -215,8 +278,13 @@ class CMAESSimulation:
                 solutions = es.ask()
                 print("Running Generation Simulation",len(solutions))
                 trajectories = [ agent.get_robot_trajectory(max_trajectory_size,solution) for solution in solutions]
-                evaluated_trajectories = collect_evaluations(trajectories,data,self.simulator_args,reward_fn)
+                if is_parallel:
+                    evaluated_trajectories = collect_evaluations_parallel(trajectories,data,self.simulator_args,reward_fn,num_procs=num_parallel_procs)
+                else:
+                    evaluated_trajectories = collect_evaluations(trajectories,data,self.simulator_args,reward_fn)
                 rewards = self._log_values(evaluated_trajectories,generation_number)
+                del evaluated_trajectories
+                gc.collect()
                 es.tell(solutions, rewards)
                 es.logger.add()  # write data to disc to be plotted
                 generation_number+=1
@@ -226,5 +294,3 @@ class CMAESSimulation:
             print("Keyboard Interrupt Occured")
             self.shutdown()
             neptune.stop()
-        finally:
-            neptune.log_artifact(self.video_save_dir)

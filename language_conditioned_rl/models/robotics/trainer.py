@@ -73,6 +73,7 @@ class Simulator(object):
                 log_every=100,\
                 reward_min=-4,\
                 reward_max=4,\
+                no_video:bool=False,\
                 headless=HEADLESS):
         self.pyrep = PyRep()
         self.pyrep.launch(scenepath, headless=headless)
@@ -105,7 +106,8 @@ class Simulator(object):
         self.shape_size_replacement["wjqQmB74rnr_2.json"] = "pour all of it into the large square basin"
         self.shape_size_replacement["LgVK8qXGowA_2.json"] = "fill a little into the big round bowl"
         self.shape_size_replacement["JZ90qm46ooP_2.json"] = "fill everything into the biggest rectangular bowl"
-        self._setup_video_dir()
+        if not no_video:
+            self._setup_video_dir()
 
     def _setup_video_dir(self):
         if dir_exists(self.video_save_dir):
