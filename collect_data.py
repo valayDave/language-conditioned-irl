@@ -34,7 +34,7 @@ TGEN_SPEED_FACTOR   = 150
 # Height at which to grasp the cups. You do not need to change this.
 GRASP_HEIGHT        = 0.115
 # Output directory of the collected data
-DATA_PATH           = "./GDrive/collected/"
+DATA_PATH           = "./freshly_collected_data/"
 # Where to find the VRep scene file. This has to be an absolute path. 
 VREP_SCENE          = "./GDrive/NeurIPS2020.ttt"
 VREP_SCENE          = os.path.join(os.getcwd() , VREP_SCENE)
@@ -429,6 +429,8 @@ def collectSingleSample(pyrep):
     trj_step    = 0
     hid         = hashids.Hashids()
     task_name   = hid.encode(int(time.time() * 1000000))
+    video_frames = []
+
     while not done:
         print("Running Loop Bro!")
         state     = _getSimulatorState(pyrep)
@@ -445,16 +447,20 @@ def collectSingleSample(pyrep):
             task["state/dict"] = []
             task["voice"]      = _generateVoice(voice, task)
         else:
+            video_frames.append(_getCameraImage(rgb_camera))
             task["state/raw"].append(state.toArray())
             task["state/dict"].append(state.data)
             try:
                 angles    = task["trajectory"][trj_step,:]
                 trj_step += 1
             except IndexError:
+                
                 angles   = task["trajectory"][-1,:]
                 phase   += 1
                 name     = task_name + "_" + str(phase) + ".json"
                 saveTaskToFile(DATA_PATH + name, task)
+                save_episode_video(random.randint(0,10000),video_frames)
+                video_frames = []
                 task     = None
                 trj_step = 0
                 if phase == 2:
@@ -466,26 +472,89 @@ def collectSingleSample(pyrep):
 
     pyrep.stop()
 
+
+def save_episode_video(episode:int,video_array:np.array,freq=3,video_dir='./video'):
+    import cv2
+    width,height= video_array[0].shape[0], video_array[0].shape[1]
+    path = os.path.join(video_dir,f'episode-{episode}.avi')
+    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+    writer = cv2.VideoWriter(path, fourcc, 20, (640,480))
+    for i in range(0,len(video_array),freq):
+        x = video_array[i].astype('uint8')
+        img= cv2.resize(x,(640,480))
+        writer.write(img)
+    writer.release()
+
+def create_picking_episodes(pyrep):
+    robot = Robot()
+    voice = Voice(load=False)
+    rgb_camera = VisionSensor("kinect_rgb_full")
+    pyrep.start()
+    print("Pyrep Picking Task About To Start")
+    frame       = 0
+    done        = False
+    task        = None
+    environment = None
+    phase       = 0 
+    trj_step    = 0
+    hid         = hashids.Hashids()
+    task_name   = hid.encode(int(time.time() * 1000000))
+    print("Running Loop Bro!")
+    state     = _getSimulatorState(pyrep)
+    environment = createEnvironment(pyrep)
+    task               = _setupTask(phase, environment, robot, state.data["joint_robot_position"])
+    task["name"]       = task_name
+    task["phase"]      = phase
+    task["image"]      = _getCameraImage(rgb_camera)
+    task["ints"]       = environment[0]
+    task["floats"]     = environment[1]
+    task["state/raw"]  = []
+    task["state/dict"] = []
+    task["voice"]      = _generateVoice(voice, task)
+    video_frames = []
+    while not done:
+        task["state/raw"].append(state.toArray())
+        task["state/dict"].append(state.data)
+        video_frames.append(
+            _getCameraImage(rgb_camera)
+        )
+        try:
+            angles    = task["trajectory"][trj_step,:]
+            trj_step += 1
+        except IndexError:
+            angles   = task["trajectory"][-1,:]
+            name     = task_name + "_" + str(phase) + ".json"
+            save_episode_video(random.randint(0,10000),video_frames)
+            saveTaskToFile(DATA_PATH + name, task)
+            done = True
+        _setJointVelocityFromTarget(pyrep, angles)
+        pyrep.step()        
+        frame += 1
+    pyrep.stop()
+
 def run():
     print("Starting BRO!")
     pyrep = None
-    for i in range(SAMPLES_PER_PROCESS):
-        if i % RESET_EACH == 0:
-            print("Collecting BRO!")
-            if pyrep is not None:
-                pyrep.shutdown()
-            pyrep = PyRep()
-            print("Launched Pyrep!")
-            pyrep.launch(VREP_SCENE, headless=VREP_HEADLESS)
+    try:
+        for i in range(SAMPLES_PER_PROCESS):
+            if i % RESET_EACH == 0:
+                print("Collecting BRO!")
+                if pyrep is not None:
+                    pyrep.shutdown()
+                pyrep = PyRep()
+                print("Launched Pyrep!")
+                pyrep.launch(VREP_SCENE, headless=VREP_HEADLESS)
 
-        collectSingleSample(pyrep)
+            collectSingleSample(pyrep)
 
-    if pyrep is not None:
-        pyrep.shutdown()
-
+        if pyrep is not None:
+            pyrep.shutdown()
+    except KeyboardInterrupt as e:
+        if pyrep is not None:
+            pyrep.shutdown()
+        print("Shutdown Stuff!")
 if __name__ == "__main__":
     # processes = [Process(target=run, args=()) for i in range(PROCESSES)]
     # [p.start() for p in processes]
     # [p.join() for p in processes]
-
     Parallel(n_jobs=PROCESSES)(delayed(run)() for i in range(PROCESSES))
