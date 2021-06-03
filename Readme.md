@@ -57,7 +57,7 @@ Docs for the Dataloaders are present [here](Docs/dataloading.md).
 
 ## Robot Experiments
 - TODO
-
+- Install CMAES Lib : `pip install git+https://github.com/CMA-ES/pycma.git@master`
 # Some Observations From Training 
 
 1. Bigger Models are finding better decision boundaries with smaller Batchsizes

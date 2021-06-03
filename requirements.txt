@@ -8,4 +8,4 @@ h5py
 gym
 opencv-python
 sklearn
-git+https://github.com/CMA-ES/pycma.git@master
+click

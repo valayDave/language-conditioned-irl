@@ -1,4 +1,7 @@
-# @author Simon Stepputtis <sstepput@asu.edu>, Interactive Robotics Lab, Arizona State University
+"""
+Script Purpose : Create the picking task demonstrations with Noise. 
+"""
+# Refactor from @author Simon Stepputtis <sstepput@asu.edu>, Interactive Robotics Lab, Arizona State University
 
 from pyrep import PyRep
 from pyrep.objects.vision_sensor import VisionSensor
@@ -15,6 +18,7 @@ import json
 from language_conditioned_rl.models.robotics.utils import Voice
 from joblib import Parallel, delayed
 import os
+import click
 
 # How many processes shold collect data in parallel? 
 # A good measure is to put the number of CPU cores you have (Note that each process needs ~1GB of RAM also)
@@ -408,9 +412,13 @@ def saveTaskToFile(path, task):
     with open(path, "w") as fh:
         json.dump(task, fh)
 
-def _generateVoice(voice, task):
-    sentence =  voice.generateSentence(task)
-    print("-> " + sentence)
+def _generateVoice(voice, task,add_noise):
+    if not add_noise:
+        sentence =  voice.generateSentence(task)
+        print("-> " + sentence)
+    else:
+        sentence =  f"try to {voice.generateSentence(task)}"
+        print("-> " + sentence)
     return sentence
 
 def collectSingleSample(pyrep):
@@ -473,10 +481,10 @@ def collectSingleSample(pyrep):
     pyrep.stop()
 
 
-def save_episode_video(episode:int,video_array:np.array,freq=3,video_dir='./freshly_collected_data/videos/'):
+def save_episode_video(file_name,video_array:np.array,freq=3,video_dir='./freshly_collected_data/videos/'):
     import cv2
     width,height= video_array[0].shape[0], video_array[0].shape[1]
-    path = os.path.join(video_dir,f'episode-{episode}.avi')
+    path = os.path.join(video_dir,f'{file_name}.avi')
     fourcc = cv2.VideoWriter_fourcc(*'DIVX')
     writer = cv2.VideoWriter(path, fourcc, 20, (640,480))
     for i in range(0,len(video_array),freq):
@@ -485,7 +493,89 @@ def save_episode_video(episode:int,video_array:np.array,freq=3,video_dir='./fres
         writer.write(img)
     writer.release()
 
-def create_picking_episodes(pyrep):
+def _setup_picking_task(phase, env, robot, current,add_noise=True,noise_dampning_factor=0.3):
+    task           = {}
+    task["amount"] = np.random.choice([180, 110])
+    ints, floats   = env
+    nbowls         = ints[0]
+    ncups          = ints[1]
+    bowl_ids       = ints[2:2+nbowls]
+    cup_ids        = ints[2+nbowls:2+nbowls+ncups]
+
+    waypoints    = []
+    kdl_frame    = robot.getTcpFromAngles(current)
+    current_rot  = kdlFrameToRot(kdl_frame)
+    current_pos  = [kdl_frame.p.x(), kdl_frame.p.y(), kdl_frame.p.z()]
+
+    kdl_frame    = robot.getTcpFromAngles(np.deg2rad(DEFAULT_UR5_JOINTS))
+    original_rot = kdlFrameToRot(kdl_frame)
+    original_pos = [kdl_frame.p.x(), kdl_frame.p.y(), kdl_frame.p.z()]
+    
+    target    = np.random.choice(cup_ids)
+    task["target/id"] = target
+    task["target/type"] = "cup"
+    task['add_noise'] = add_noise
+    target    = _getObjectInfo(ints, floats, target, iscup=True)
+    target[2] = GRASP_HEIGHT
+    rot       = [r for r in current_rot]
+    rot[0]    += _calculateAngle(target[0], target[1])
+    waypoints.append(("L", [t for t in target], rot))
+
+    norm        = np.linalg.norm(target[:2], ord=2)
+    factor      = norm / (norm * 0.85)
+    target2     = [t for t in target]
+    target2[0] /= factor
+    target2[1] /= factor
+    waypoints.insert(0, ("J", target2, rot))
+    waypoints.append(("G", None, None))
+    target3     = [t for t in target2]
+    target3[2] += 0.10
+    waypoints.append(("L", target3, rot))
+
+    trajectory       = np.zeros((1,7), dtype=np.float32)
+    trajectory[0,:6] = current
+    grasp_active     = False if phase == 0 else True
+    if grasp_active:
+        trajectory[0,-1] = 1.0
+
+    # The waypoints are planned prehand with linear movements or grapsing status. 
+    # The preplanned waypoints are converted to joint position trajectory. 
+    for i, wp in enumerate(waypoints):
+        if wp[0] == "L": # Move linear in tool space
+            part = _moveL(robot, trajectory[-1,:6], wp[1:], pad_one=grasp_active)
+        elif wp[0] == "J": # Move linear in joint space
+            part = _moveJ(robot, trajectory[-1,:6], wp[1:], pad_one=grasp_active)
+        elif wp[0] == "G": # Close gripper
+            part = np.tile(trajectory[-1,:],reps=[30,1])
+            part[:,-1] = 1.0
+            grasp_active = True
+        elif wp[0] == "P": # Do pouring motion
+            part = _generatePouring(robot, trajectory[-1,:], wp[2])
+        elif wp[0] == "I": # Idle a little
+            part = np.tile(np.expand_dims(trajectory[-1,:], 0),reps=[wp[1],1])
+        
+        NOISE_DAMPING_FACTOR = noise_dampning_factor
+        if add_noise:
+            part_len,part_dims = part.shape
+            traj_p = part[:,:-1]
+            gripper_part = part[:,-1:]
+            part_mean = traj_p.mean(axis=1)
+            part_std = traj_p.std(axis=1)
+            noise_min = part_mean.mean() - 2*part_std.mean()
+            noise_max = part_mean.mean() - 1*part_std.mean()
+            sampl = np.random.uniform(low=noise_min, high=noise_max, size=(part_len,part_dims-1))
+            sampl = sampl*NOISE_DAMPING_FACTOR
+            traj_p = traj_p + sampl
+            part = np.concatenate((traj_p,gripper_part),axis=1)
+            print("Part Modified with Noise of Mean",sampl.mean())
+
+        trajectory = np.vstack((trajectory, part))
+    
+    task["trajectory"] = trajectory
+
+    return task
+
+def create_picking_episodes(pyrep,add_noise=False):
     robot = Robot()
     voice = Voice(load=False)
     rgb_camera = VisionSensor("kinect_rgb_full")
@@ -502,7 +592,7 @@ def create_picking_episodes(pyrep):
     print("Running Loop Bro!")
     state     = _getSimulatorState(pyrep)
     environment = createEnvironment(pyrep)
-    task               = _setupTask(phase, environment, robot, state.data["joint_robot_position"])
+    task               = _setup_picking_task(phase, environment, robot, state.data["joint_robot_position"],add_noise=add_noise,noise_dampning_factor=random.uniform(0.1,1))
     task["name"]       = task_name
     task["phase"]      = phase
     task["image"]      = _getCameraImage(rgb_camera)
@@ -510,7 +600,7 @@ def create_picking_episodes(pyrep):
     task["floats"]     = environment[1]
     task["state/raw"]  = []
     task["state/dict"] = []
-    task["voice"]      = _generateVoice(voice, task)
+    task["voice"]      = _generateVoice(voice, task,add_noise)
     video_frames = []
     while not done:
         task["state/raw"].append(state.toArray())
@@ -523,38 +613,56 @@ def create_picking_episodes(pyrep):
             trj_step += 1
         except IndexError:
             angles   = task["trajectory"][-1,:]
-            name     = task_name + "_" + str(phase) + ".json"
-            save_episode_video(random.randint(0,10000),video_frames)
-            saveTaskToFile(DATA_PATH + name, task)
+            name     = task_name + "_" + str(phase) 
+            js_name = f"{name}.json"
+            save_episode_video(name,video_frames)
+            saveTaskToFile(os.path.join(DATA_PATH,js_name), task)
             done = True
         _setJointVelocityFromTarget(pyrep, angles)
         pyrep.step()        
         frame += 1
     pyrep.stop()
 
-def run():
+
+
+def run(per_process_demos,without_noise):
     print("Starting BRO!")
     pyrep = None
     try:
-        for i in range(SAMPLES_PER_PROCESS):
-            if i % RESET_EACH == 0:
-                print("Collecting BRO!")
-                if pyrep is not None:
-                    pyrep.shutdown()
-                pyrep = PyRep()
-                print("Launched Pyrep!")
-                pyrep.launch(VREP_SCENE, headless=VREP_HEADLESS)
-
-            collectSingleSample(pyrep)
-
+        print("Collecting BRO!")
+        pyrep = PyRep()
+        print("Launched Pyrep!")
+        pyrep.launch(VREP_SCENE, headless=VREP_HEADLESS)
+        for i in range(per_process_demos):
+            noise_bool = False
+            if not without_noise:
+                if i%2 != 0:
+                    noise_bool = True
+            create_picking_episodes(pyrep,add_noise=noise_bool)
         if pyrep is not None:
             pyrep.shutdown()
     except KeyboardInterrupt as e:
         if pyrep is not None:
             pyrep.shutdown()
         print("Shutdown Stuff!")
+
+
+
+
+@click.command(help='Collect Demostrations For the Picking Task')
+@click.option('--num-demos',default=10,help='Number of Demostrations to Create From Simulator')
+@click.option('--without-noise',is_flag=True,help='Creates demostrations without noise')
+@click.option('--num-procs',default=2,help='Number of Processes to create For Making Demostrations')
+def make_picking_task(num_demos,without_noise,num_procs):
+    per_process_demos = int(num_demos/num_procs)
+    assert per_process_demos > 0
+    Parallel(n_jobs=num_procs)(delayed(run)(per_process_demos,without_noise) for i in range(num_procs))
+    
+
+
+"""
+TODO : 
+    - Figure the Number Of samples to generate for the Trajectories. 
+"""
 if __name__ == "__main__":
-    # processes = [Process(target=run, args=()) for i in range(PROCESSES)]
-    # [p.start() for p in processes]
-    # [p.join() for p in processes]
-    Parallel(n_jobs=PROCESSES)(delayed(run)() for i in range(PROCESSES))
+   make_picking_task()
