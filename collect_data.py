@@ -34,7 +34,7 @@ TGEN_SPEED_FACTOR   = 150
 # Height at which to grasp the cups. You do not need to change this.
 GRASP_HEIGHT        = 0.115
 # Output directory of the collected data
-DATA_PATH           = "./freshly_collected_data/"
+DATA_PATH           = "./freshly_collected_data/dataset/"
 # Where to find the VRep scene file. This has to be an absolute path. 
 VREP_SCENE          = "./GDrive/NeurIPS2020.ttt"
 VREP_SCENE          = os.path.join(os.getcwd() , VREP_SCENE)
@@ -473,7 +473,7 @@ def collectSingleSample(pyrep):
     pyrep.stop()
 
 
-def save_episode_video(episode:int,video_array:np.array,freq=3,video_dir='./video'):
+def save_episode_video(episode:int,video_array:np.array,freq=3,video_dir='./freshly_collected_data/videos/'):
     import cv2
     width,height= video_array[0].shape[0], video_array[0].shape[1]
     path = os.path.join(video_dir,f'episode-{episode}.avi')
