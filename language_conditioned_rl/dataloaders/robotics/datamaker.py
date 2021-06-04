@@ -136,6 +136,23 @@ def get_hd5_dtypes():
     }
 
 
+def decompress_json(data, key):
+    cache_val = json.loads(zlib.decompress(base64.b64decode(data)))
+    cache_val['main_name'] = key
+    return cache_val
+
+def load_and_decompress(json_pth):
+    loaded_obj = load_json_from_file(json_pth)
+    file_name = json_pth.split('/')[-1].split('.json')[0]
+    decompressed_object = decompress_json(list(loaded_obj.values())[0], file_name)
+    return decompressed_object
+
+def load_object(json_pth):
+    loaded_obj = load_json_from_file(json_pth)
+    file_name = json_pth.split('/')[-1].split('.json')[0]
+    loaded_obj['main_name'] = file_name
+    return loaded_obj
+
 class H5DataCreatorMainDataCreator:
 
     def __init__(self,
@@ -144,6 +161,7 @@ class H5DataCreatorMainDataCreator:
                  use_channels=USE_CHANNELS,
                  image_resize_dims=IMAGE_SIZE,
                  tokenizer=None,
+                 decompress=True,
                  chunk_size=256,
                  max_traj_len=MAX_TRAJ_LEN,
                  max_txt_len=MAX_TEXT_LENGTH):
@@ -156,6 +174,7 @@ class H5DataCreatorMainDataCreator:
                                        image_resize_dims=image_resize_dims)
         self.file_name = save_file_name
         self.hf = None
+        self.decompress = decompress
         self.seq_grp = None
         self.mask_grp = None
         self.sample_pths = sample_pths
@@ -170,7 +189,7 @@ class H5DataCreatorMainDataCreator:
             loaded_obj = load_json_from_file(json_pth)
             assert 'samples' in loaded_obj
             decompressd_objects = parallel_map(
-                lambda x: self.decompress_json(loaded_obj[x], x), loaded_obj['samples'])
+                lambda x: decompress_json(loaded_obj[x], x), loaded_obj['samples'])
             # Make the Chunked Tensors from this
             object_tuple = self.roboutils.make_saveable_chunk(
                 decompressd_objects)
@@ -261,6 +280,7 @@ class H5DataCreatorMainDataCreator:
         # self.final_id_list.extend(id_list)
         return True
 
+
 class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
 
     META_EXTRACTION_KEYS = [
@@ -270,20 +290,12 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
         'target/id',
         'target/type',
         'amount',
-        'main_name'
+        'main_name',
+        'floats',
+        'add_noise'
     ]
     
-    def decompress_json(self, data, key):
-        cache_val = json.loads(zlib.decompress(base64.b64decode(data)))
-        cache_val['main_name'] = key
-        return cache_val
-
-    def load_and_decompress(self,json_pth):
-        loaded_obj = load_json_from_file(json_pth)
-        file_name = json_pth.split('/')[-1].split('.json')[0]
-        decompressed_object = self.decompress_json(list(loaded_obj.values())[0], file_name)
-        return decompressed_object
-
+    
     @staticmethod
     def _make_list_chunks(lst, n):
         """Yield successive n-sized chunks from lst."""
@@ -301,6 +313,8 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
     
     def build(self,chunk_size=20):
         def filter_smaller_video_frames(robo_data_dict,max_num_video_frames=MAX_VIDEO_FRAMES,max_traj_len=MAX_TRAJ_LEN):
+            if robo_data_dict is None:
+                return False
             if 'image_sequence' in robo_data_dict:
                 if len(robo_data_dict['image_sequence']) < max_num_video_frames:
                     return False
@@ -313,26 +327,28 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
         self.logger = create_logger(self.__class__.__name__)
         file_chunks = self._make_list_chunks(self.sample_pths,chunk_size)
         main_meta_df = []
+        loading_fn = load_object if not self.decompress else load_and_decompress
         for idx,json_pth_chunk in enumerate(file_chunks):
-
-            decompressd_objects = parallel_map(lambda x : self.load_and_decompress(x),json_pth_chunk)
+            decompressd_objects = parallel_map(lambda x : loading_fn(x),json_pth_chunk)
             self.logger.info(f"Completed Loading Path Chunk {idx}")
             # Make the Chunked Tensors from this
             filtered_objects = list(filter(
                 partial(filter_smaller_video_frames,max_traj_len=self.roboutils.max_traj_len),
                 decompressd_objects
             ))
-            object_tuple = self.roboutils.make_saveable_chunk(filtered_objects)
-            sequence_dict, mask_dict, id_list = object_tuple
-            if self.hf is None:
-                self._create_core_structures(sequence_dict, mask_dict, id_list)
-            else:
-                self._append_to_file(sequence_dict, mask_dict, id_list)
-            main_meta_df.append(
-                self._make_metadf(decompressd_objects)
-            )
+            if len(filtered_objects) > 0:
+                object_tuple = self.roboutils.make_saveable_chunk(filtered_objects)
+                sequence_dict, mask_dict, id_list = object_tuple
+                if self.hf is None:
+                    self._create_core_structures(sequence_dict, mask_dict, id_list)
+                else:
+                    self._append_to_file(sequence_dict, mask_dict, id_list)
+                main_meta_df.append(
+                    self._make_metadf(filtered_objects)
+                )
+                del object_tuple
+                del filtered_objects
             del decompressd_objects
-            del object_tuple
             gc.collect()
         self.close()
         concat_df = pandas.concat(main_meta_df)
@@ -591,6 +607,8 @@ class ContrastingActionsRule(SampleContrastingRule):
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         sets = []
         non_sampled_df = metadf.groupby(['demo_type'])
+        if len(non_sampled_df) < 2:
+            return []
         for _, idxs in non_sampled_df.groups.items():
             sets.append(idxs)
 
@@ -706,6 +724,44 @@ class PickingObjectContrastingRule(SampleContrastingRule):
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
         demo_grp = ddf[ddf['demo_type'] ==0] 
+        # Only Use Non Noise Records as it' contrasting items
+        demo_grp = demo_grp[demo_grp['add_noise']==False]
+        return self.make_picking_data(demo_grp,num_samples_per_rule)
+
+class PickingNoisyContrastRule(SampleContrastingRule):
+    """PickingNoisyContrastRule 
+    Rule creating contrasting indices noisy and non noisy trajectories
+    """
+
+    def __init__(self,):
+        super().__init__(description="Rule creating contrasting indices based on shapes and sizes of the objects for pouring. Picking will be done based on the object itself. ")
+        self.FORBIDDEN_SENTENCES = FORBIDDEN_SENTENCES
+        self.OBJECT_IDENTIFIERS = pandas.DataFrame(OBJECT_IDENTIFIERS)
+        self.rule_map = {
+            "pos_traj_rw":"The sentence is describing object X in environment and the trajectory interacted with object X",
+            "neg_traj_rw":"The sentence is describing the robot to 'try' and pick some object Y in environment",
+            "plot_title":"Reward Distribution when the task is the same but the object is changed in the contrastive sentence For Picking Task"
+        }
+
+    def make_picking_data(self,demo_grp,size):
+        return_indexs = []
+        sets=[]
+        non_sampled_df = demo_grp.groupby(['add_noise'])
+        for _, idxs in non_sampled_df.groups.items():
+            sets.append(idxs)
+        for i in range(size):
+            # Select any two group of indexes with different target_id
+            set0, set1 = random.sample(sets, 2)
+            # Select any two indexes from the selected group of indexes.
+            return_indexs.append((random.choice(set0), random.choice(set1)))
+
+        return return_indexs
+    
+
+    def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
+        ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
+        demo_grp = ddf[ddf['demo_type'] ==0] 
+        # Only Use Non Noise Records as it' contrasting items
         return self.make_picking_data(demo_grp,num_samples_per_rule)
 
 
@@ -758,10 +814,11 @@ class SameObjectPouringIntensityRule(SampleContrastingRule):
 
 
 POSSIBLE_RULES = [
-    ContrastingActionsRule,
-    PouringShapeSizeContrast,
+    # ContrastingActionsRule,
+    # PouringShapeSizeContrast,
     PickingObjectContrastingRule,
-    SameObjectPouringIntensityRule,
+    # SameObjectPouringIntensityRule,
+    PickingNoisyContrastRule
 ]
 
 
@@ -860,10 +917,13 @@ class HDF5ContrastiveSetCreator:
         'voice',
         'target/id',
         'target/type',
-        'amount'
+        'amount',
+        'floats',
+        'add_noise'
     ]
 
     MAPPING_COLUMNS = {
+        'floats' : 'object_postions_and_pose',
         'phase': 'demo_type',
         'ints': 'object_meta',
         'num_bowls': 'num_bowls',
@@ -872,7 +932,8 @@ class HDF5ContrastiveSetCreator:
         'voice': 'voice',
         'target/id': 'target_id',
         'target/type': 'target_type',
-        'amount': 'pouring_amount'
+        'amount': 'pouring_amount',
+        'add_noise' : 'add_noise'
     }
 
     MAIN_KEYS = [
@@ -885,7 +946,9 @@ class HDF5ContrastiveSetCreator:
         'voice',
         'target_id',
         'target_type',
-        'pouring_amount'
+        'pouring_amount',
+        'object_postions_and_pose',
+        'add_noise'
     ]
 
     MAIN_IDENTIFIER_NAME = 'demo_name'
@@ -903,7 +966,6 @@ class HDF5ContrastiveSetCreator:
     def __init__(self,
                  metafile_path: str,
                  core_demostrations_hdf5pth: str,
-                 chunk_size=512,
                  control_params: ContrastiveControlParameters = DEFAULT_CONTROL_PARAMS) -> None:
 
         assert is_present(metafile_path)
@@ -916,7 +978,6 @@ class HDF5ContrastiveSetCreator:
         self.demo_dataset = DemonstrationsDataset(core_demostrations_hdf5pth)
         self.id_list = self.demo_dataset.id_list
         self.control_params = control_params
-        self.chunk_size=chunk_size
         self.logger = create_logger(self.__class__.__name__)
 
     def _partition_train_test(self):
