@@ -147,6 +147,12 @@ def load_and_decompress(json_pth):
     decompressed_object = decompress_json(list(loaded_obj.values())[0], file_name)
     return decompressed_object
 
+def load_object(json_pth):
+    loaded_obj = load_json_from_file(json_pth)
+    file_name = json_pth.split('/')[-1].split('.json')[0]
+    loaded_obj['main_name'] = file_name
+    return loaded_obj
+
 class H5DataCreatorMainDataCreator:
 
     def __init__(self,
@@ -155,6 +161,7 @@ class H5DataCreatorMainDataCreator:
                  use_channels=USE_CHANNELS,
                  image_resize_dims=IMAGE_SIZE,
                  tokenizer=None,
+                 decompress=True,
                  chunk_size=256,
                  max_traj_len=MAX_TRAJ_LEN,
                  max_txt_len=MAX_TEXT_LENGTH):
@@ -167,6 +174,7 @@ class H5DataCreatorMainDataCreator:
                                        image_resize_dims=image_resize_dims)
         self.file_name = save_file_name
         self.hf = None
+        self.decompress = decompress
         self.seq_grp = None
         self.mask_grp = None
         self.sample_pths = sample_pths
@@ -319,9 +327,9 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
         self.logger = create_logger(self.__class__.__name__)
         file_chunks = self._make_list_chunks(self.sample_pths,chunk_size)
         main_meta_df = []
+        loading_fn = load_object if not self.decompress else load_and_decompress
         for idx,json_pth_chunk in enumerate(file_chunks):
-
-            decompressd_objects = parallel_map(lambda x : load_and_decompress(x),json_pth_chunk)
+            decompressd_objects = parallel_map(lambda x : loading_fn(x),json_pth_chunk)
             self.logger.info(f"Completed Loading Path Chunk {idx}")
             # Make the Chunked Tensors from this
             filtered_objects = list(filter(
@@ -599,6 +607,8 @@ class ContrastingActionsRule(SampleContrastingRule):
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         sets = []
         non_sampled_df = metadf.groupby(['demo_type'])
+        if len(non_sampled_df) < 2:
+            return []
         for _, idxs in non_sampled_df.groups.items():
             sets.append(idxs)
 
@@ -752,7 +762,6 @@ class PickingNoisyContrastRule(SampleContrastingRule):
         ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
         demo_grp = ddf[ddf['demo_type'] ==0] 
         # Only Use Non Noise Records as it' contrasting items
-        demo_grp = demo_grp[demo_grp['add_noise']==False]
         return self.make_picking_data(demo_grp,num_samples_per_rule)
 
 
@@ -805,10 +814,10 @@ class SameObjectPouringIntensityRule(SampleContrastingRule):
 
 
 POSSIBLE_RULES = [
-    ContrastingActionsRule,
-    PouringShapeSizeContrast,
+    # ContrastingActionsRule,
+    # PouringShapeSizeContrast,
     PickingObjectContrastingRule,
-    SameObjectPouringIntensityRule,
+    # SameObjectPouringIntensityRule,
     PickingNoisyContrastRule
 ]
 
@@ -957,7 +966,6 @@ class HDF5ContrastiveSetCreator:
     def __init__(self,
                  metafile_path: str,
                  core_demostrations_hdf5pth: str,
-                 chunk_size=512,
                  control_params: ContrastiveControlParameters = DEFAULT_CONTROL_PARAMS) -> None:
 
         assert is_present(metafile_path)
@@ -970,7 +978,6 @@ class HDF5ContrastiveSetCreator:
         self.demo_dataset = DemonstrationsDataset(core_demostrations_hdf5pth)
         self.id_list = self.demo_dataset.id_list
         self.control_params = control_params
-        self.chunk_size=chunk_size
         self.logger = create_logger(self.__class__.__name__)
 
     def _partition_train_test(self):
