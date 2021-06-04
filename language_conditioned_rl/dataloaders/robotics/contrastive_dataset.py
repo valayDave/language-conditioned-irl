@@ -7,6 +7,7 @@ import os
 import h5py
 from typing import List
 import matplotlib as plt
+import json
 
 
 from ..channel import ChannelData
@@ -16,6 +17,7 @@ from .utils import \
 
 from .dataset import \
     GROUPNAMES,\
+    DYNAMIC_CHANNEL_MAP,\
     ContrastiveCollateFn,\
     MultiTaskContrastiveCollateFn,\
     is_present,\
@@ -112,6 +114,7 @@ class SentenceContrastiveDataset(Dataset):
         self.masks = self.load_sequences(self.h5.get(GROUPNAMES.masks),use_channels,mask=True)
         # $ Metadata Loading
         self.dataset_meta = pandas.read_csv(metapth)
+        self.use_channels = use_channels
         self.control_parameters = ContrastiveControlParameters.from_json(
             load_json_from_file(control_parameter_pth)
         )
@@ -179,10 +182,21 @@ class SentenceContrastiveDataset(Dataset):
         return all_indices , rule_distribution
     
     @staticmethod
+    def _make_list_chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+    
+    @staticmethod
     def load_sequences(seq,channels,mask=False):
         dd = {}
         for k in channels:
-            assert mask or k in seq.keys(), f"Channel {k} not found in the HDF5 Dataset Sequence"
+            if not mask:
+                assert k in seq.keys() or k in DYNAMIC_CHANNEL_MAP, f"Channel {k} not found in the HDF5 Dataset Sequence Or Not Found in {DYNAMIC_CHANNEL_MAP.keys()}"
+            if k in DYNAMIC_CHANNEL_MAP: # Monkey Patch
+                for key in DYNAMIC_CHANNEL_MAP[k]:
+                    dd[key] = np.array(seq[key])
+                    
             if k not in seq.keys():
                 continue
             dd[k] = np.array(seq[k])
@@ -196,7 +210,7 @@ class SentenceContrastiveDataset(Dataset):
         returns dictionary of ChannelData
         """
         channel_dict = {}
-        for k in self.sequences.keys():
+        for k in self.use_channels:
             mask = None if k not in self.masks else torch.from_numpy(self.masks[k][index])
             seq = torch.from_numpy(self.sequences[k][index])
             if k == 'image_sequence' and self.normalize_images: # Monkey Patch
@@ -204,7 +218,7 @@ class SentenceContrastiveDataset(Dataset):
                 for frame in seq:
                     seq_frames.append(self.norm_transform(frame))
                 seq = torch.stack(seq_frames)
-                
+            
             channel_dict[k] = ChannelData(
                 mask=mask,
                 sequence=seq,
@@ -222,6 +236,86 @@ class SentenceContrastiveDataset(Dataset):
     def collate_fn():
         return ContrastiveCollateFn()
 
+
+class JointsChannelsConcatDataset(SentenceContrastiveDataset):
+    """JointsChannelsConcatDataset 
+    Experiment to concatenate everything to one dimension. 
+    """
+    def __init__(self, 
+                contrastive_set_generated_folder:str,\
+                use_channels=USE_CHANNELS,\
+                train=True,\
+                normalize_images=False,\
+                use_original_contrastive_indices:bool=True,\
+                size:int=200) -> None:
+        super().__init__(contrastive_set_generated_folder, use_channels=use_channels, train=train, normalize_images=normalize_images, use_original_contrastive_indices=use_original_contrastive_indices, size=size)
+        self.joint_channel_name = 'joint_combined_vector'
+        self.target_pos_vec = 'final_target_coordinates'
+        self.max_position_set = None
+        self._create_concact_joint_channels()
+        self._create_final_target_coordinates()
+
+    def _create_final_target_coordinates(self):
+        if not self.target_pos_vec in self.use_channels:
+            return
+        assert 'tcp_position' in self.sequences
+        dfx = self.dataset_meta['object_postions_and_pose'].apply(lambda x:len(np.array(json.loads(x)))/3)
+        max_obj_vals = int(dfx.max())
+        id_fixed_positions = []        
+        final_masks = []
+        for ixx in self.id_list:
+            ixp = ixx.decode('utf-8')
+            # Extract values from the dataset
+            r = self.dataset_meta[self.dataset_meta['demo_name'] == ixp].iloc[0]
+            positions = json.loads(r['object_postions_and_pose'])
+            objects = json.loads(r['object_meta'])[2:]
+            main_id = r['target_id']
+            # make chunks and correlate and make new array with first element as the target object
+            chunked_positions = list(self._make_list_chunks(positions,3))
+            new_adjusted_pos_arr = []
+            for obid,pos_chunk in zip(objects,chunked_positions):
+                x,y,_ = pos_chunk
+                if obid == main_id:
+                    tt = [x,y]
+                    tt.extend(new_adjusted_pos_arr)
+                    new_adjusted_pos_arr = tt
+                else:
+                    new_adjusted_pos_arr.extend([x,y])
+            
+            ob_mask_arr = [1 for _ in range(len(new_adjusted_pos_arr))]
+            padding_amt = max_obj_vals*2 - len(new_adjusted_pos_arr)
+            padding = [0 for _ in range(padding_amt)]
+            new_adjusted_pos_arr.extend(padding)
+            ob_mask_arr.extend(padding)
+            
+            final_masks.append(np.array(ob_mask_arr,dtype=np.int32))
+            id_fixed_positions.append(np.array(new_adjusted_pos_arr,dtype=np.float32))
+
+        correlated_final_position_list = np.stack(id_fixed_positions)
+        position_masks = np.stack(final_masks)
+        self.max_position_set =  position_masks.shape[1]
+        self.sequences[self.target_pos_vec] = np.expand_dims(correlated_final_position_list,2)
+        self.masks[self.target_pos_vec] = position_masks
+        
+
+
+    def _create_concact_joint_channels(self):
+        if not self.joint_channel_name in self.use_channels:
+            return
+        assert 'joint_gripper' in self.sequences and 'joint_robot_position' in self.sequences
+        save_vectors =[]
+        for i in range(len(self.sequences['joint_gripper'])):
+            gp = self.sequences['joint_gripper'][i]
+            jp = self.sequences['joint_robot_position'][i]
+            gripposv = np.expand_dims(gp,1)
+            conc_vec = np.array(np.concatenate((gripposv,jp),axis=1),dtype=np.float32)
+            
+            save_vectors.append(conc_vec)
+        
+        self.sequences[self.joint_channel_name] = save_vectors
+        self.masks[self.joint_channel_name] = self.masks['joint_gripper']
+        
+
 class TaskBasedSentenceContrastiveDataset(Dataset):
     """TaskBasedSentenceContrastiveDataset 
     Creates a dataset which returns rule specific contrastive loss tuples. 
@@ -235,7 +329,7 @@ class TaskBasedSentenceContrastiveDataset(Dataset):
                 size:int=200) -> None:
         assert len(rules) > 0, "Need Specific Rules To Instantiate Dataset"
         self.datasets = [
-            SentenceContrastiveDataset(
+            JointsChannelsConcatDataset(
                 contrastive_set_generated_folder,
                 use_channels=use_channels,
                 use_original_contrastive_indices=True,
