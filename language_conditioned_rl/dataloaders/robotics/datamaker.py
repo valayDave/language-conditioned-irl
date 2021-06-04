@@ -283,7 +283,8 @@ class HDF5VideoDatasetCreator(H5DataCreatorMainDataCreator):
         'target/type',
         'amount',
         'main_name',
-        'floats'
+        'floats',
+        'add_noise'
     ]
     
     
@@ -713,6 +714,45 @@ class PickingObjectContrastingRule(SampleContrastingRule):
     def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
         ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
         demo_grp = ddf[ddf['demo_type'] ==0] 
+        # Only Use Non Noise Records as it' contrasting items
+        demo_grp = demo_grp[demo_grp['add_noise']==False]
+        return self.make_picking_data(demo_grp,num_samples_per_rule)
+
+class PickingNoisyContrastRule(SampleContrastingRule):
+    """PickingNoisyContrastRule 
+    Rule creating contrasting indices noisy and non noisy trajectories
+    """
+
+    def __init__(self,):
+        super().__init__(description="Rule creating contrasting indices based on shapes and sizes of the objects for pouring. Picking will be done based on the object itself. ")
+        self.FORBIDDEN_SENTENCES = FORBIDDEN_SENTENCES
+        self.OBJECT_IDENTIFIERS = pandas.DataFrame(OBJECT_IDENTIFIERS)
+        self.rule_map = {
+            "pos_traj_rw":"The sentence is describing object X in environment and the trajectory interacted with object X",
+            "neg_traj_rw":"The sentence is describing the robot to 'try' and pick some object Y in environment",
+            "plot_title":"Reward Distribution when the task is the same but the object is changed in the contrastive sentence For Picking Task"
+        }
+
+    def make_picking_data(self,demo_grp,size):
+        return_indexs = []
+        sets=[]
+        non_sampled_df = demo_grp.groupby(['add_noise'])
+        for _, idxs in non_sampled_df.groups.items():
+            sets.append(idxs)
+        for i in range(size):
+            # Select any two group of indexes with different target_id
+            set0, set1 = random.sample(sets, 2)
+            # Select any two indexes from the selected group of indexes.
+            return_indexs.append((random.choice(set0), random.choice(set1)))
+
+        return return_indexs
+    
+
+    def _execute_rule(self, metadf: pandas.DataFrame, num_samples_per_rule: int = 1000) -> List[Tuple[str, str]]:
+        ddf = metadf[metadf['voice'].apply(lambda x:x not in self.FORBIDDEN_SENTENCES)]
+        demo_grp = ddf[ddf['demo_type'] ==0] 
+        # Only Use Non Noise Records as it' contrasting items
+        demo_grp = demo_grp[demo_grp['add_noise']==False]
         return self.make_picking_data(demo_grp,num_samples_per_rule)
 
 
@@ -769,6 +809,7 @@ POSSIBLE_RULES = [
     PouringShapeSizeContrast,
     PickingObjectContrastingRule,
     SameObjectPouringIntensityRule,
+    PickingNoisyContrastRule
 ]
 
 
@@ -868,7 +909,8 @@ class HDF5ContrastiveSetCreator:
         'target/id',
         'target/type',
         'amount',
-        'floats'
+        'floats',
+        'add_noise'
     ]
 
     MAPPING_COLUMNS = {
@@ -881,7 +923,8 @@ class HDF5ContrastiveSetCreator:
         'voice': 'voice',
         'target/id': 'target_id',
         'target/type': 'target_type',
-        'amount': 'pouring_amount'
+        'amount': 'pouring_amount',
+        'add_noise' : 'add_noise'
     }
 
     MAIN_KEYS = [
@@ -895,7 +938,8 @@ class HDF5ContrastiveSetCreator:
         'target_id',
         'target_type',
         'pouring_amount',
-        'object_postions_and_pose'
+        'object_postions_and_pose',
+        'add_noise'
     ]
 
     MAIN_IDENTIFIER_NAME = 'demo_name'
