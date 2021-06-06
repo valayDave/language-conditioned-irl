@@ -319,12 +319,22 @@ class JointsChannelsConcatDataset(SentenceContrastiveDataset):
 class TaskBasedSentenceContrastiveDataset(Dataset):
     """TaskBasedSentenceContrastiveDataset 
     Creates a dataset which returns rule specific contrastive loss tuples. 
+    
+    Parameters
+    ----------
+    - `rules` : 
+        - Array of rules to apply. 
+
+    - `rule_distribution` : 
+        - if empty that means all rules are equally distributed
+        - else it should have all values that sum to 1 where each item in rule_distribution denotes item in rules
     """
     def __init__(self,\
                 contrastive_set_generated_folder:str,\
                 use_channels=USE_CHANNELS,\
                 train=True,\
                 rules = [],\
+                rule_distribution = [],\
                 normalize_images=False,\
                 size:int=200) -> None:
         assert len(rules) > 0, "Need Specific Rules To Instantiate Dataset"
@@ -337,10 +347,19 @@ class TaskBasedSentenceContrastiveDataset(Dataset):
                 train=train
             ) for _ in range(len(rules))
         ]
-        for r,d in zip(rules,self.datasets):
-            d.remake_indices(
-                int(size/len(rules)),rules=[r]
-            )
+        use_other_distribution = False
+        # always normalize the rule_distribution 
+        if len(rule_distribution) > 0:
+            rule_distribution = [i/sum(rule_distribution) for i in rule_distribution]
+            use_other_distribution = True
+
+        for idx,r,d in zip(list(range(len(rules))),rules,self.datasets):
+            rule_size = None
+            if use_other_distribution:
+                rule_size = int(size*rule_distribution[idx])
+            else:
+                rule_size = int(size/len(rules))
+            d.remake_indices(rule_size,rules=r)
     
     def __getitem__(self, index):
         return tuple(
