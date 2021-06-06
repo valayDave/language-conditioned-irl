@@ -136,7 +136,7 @@ class SentenceContrastiveDataset(Dataset):
         )
         
     
-    def remake_indices(self,size:int,rules=[]):
+    def remake_indices(self,size:int,rules=[],rule_distribution=[]):
         """remake_indices 
         This method will rerun the rules on the self.dataset_meta
         """
@@ -147,7 +147,14 @@ class SentenceContrastiveDataset(Dataset):
         input_rules = self.control_parameters.rules
         if len(rules) > 0 : 
             input_rules = rules
-        contrastive_df_indices , rule_distribution = self._make_indices(self.dataset_meta,size,input_rules)
+        if len(rule_distribution) > 0:
+            assert len(rule_distribution) == len(input_rules)
+            rule_distribution = [i/sum(rule_distribution) for i in rule_distribution]
+
+        contrastive_df_indices , rule_distribution = self._make_indices(self.dataset_meta,\
+                                                                        size,\
+                                                                        input_rules,\
+                                                                        size_distribution=rule_distribution)
         collated_id_indices = collate_indices(
             self.dataset_meta,
             contrastive_df_indices,
@@ -160,17 +167,21 @@ class SentenceContrastiveDataset(Dataset):
         self.indices_rules = rule_distribution
         
     @staticmethod
-    def _make_indices(dataframe:pandas.DataFrame,size:int,rules:List[SampleContrastingRule]):
+    def _make_indices(dataframe:pandas.DataFrame,size:int,rules:List[SampleContrastingRule],size_distribution=[]):
         """_make_indices [summary]
-        Takes a dataframe , runs the list of `SampleContrastingRule`'s to create contrastive indices of a total certain `size`
+        Takes a dataframe , runs the list of `SampleContrastingRule`'s to create contrastive indices of a total certain `size` or based on `size_distribution`
         returns : Tuple(all_indices,rule_distribution)
             - `all_indices` : List[List[int,int]]
             - `rule_distribution` : List[str] : list where each index corresponds to what rule created that contrastive sample. . 
         """
-        size_dis = [ 
-            int(size/len(rules))\
-                for _ in range(len(rules))
-        ]
+        size_dis = []
+        if len(size_distribution) > 0:
+            size_dis = [int(i*size) for i in size_distribution]
+        else:
+            size_dis = [ 
+                int(size/len(rules))\
+                    for _ in range(len(rules))
+            ]
         all_indices = []
         rule_distribution = []
         # $ Use rule to create contrastive indices
@@ -324,17 +335,12 @@ class TaskBasedSentenceContrastiveDataset(Dataset):
     ----------
     - `rules` : 
         - Array of rules to apply. 
-
-    - `rule_distribution` : 
-        - if empty that means all rules are equally distributed
-        - else it should have all values that sum to 1 where each item in rule_distribution denotes item in rules
     """
     def __init__(self,\
                 contrastive_set_generated_folder:str,\
                 use_channels=USE_CHANNELS,\
                 train=True,\
                 rules = [],\
-                rule_distribution = [],\
                 normalize_images=False,\
                 size:int=200) -> None:
         assert len(rules) > 0, "Need Specific Rules To Instantiate Dataset"
@@ -347,20 +353,11 @@ class TaskBasedSentenceContrastiveDataset(Dataset):
                 train=train
             ) for _ in range(len(rules))
         ]
-        use_other_distribution = False
-        # always normalize the rule_distribution 
-        if len(rule_distribution) > 0:
-            rule_distribution = [i/sum(rule_distribution) for i in rule_distribution]
-            use_other_distribution = True
-
-        for idx,r,d in zip(list(range(len(rules))),rules,self.datasets):
-            rule_size = None
-            if use_other_distribution:
-                rule_size = int(size*rule_distribution[idx])
-            else:
-                rule_size = int(size/len(rules))
+        
+        for r,d in zip(rules,self.datasets):
+            rule_size = int(size/len(rules))
             d.remake_indices(rule_size,rules=[r])
-    
+        
     def __getitem__(self, index):
         return tuple(
             d[index] for d in self.datasets
