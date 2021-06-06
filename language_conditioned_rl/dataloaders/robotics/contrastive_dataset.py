@@ -359,7 +359,7 @@ class TaskBasedSentenceContrastiveDataset(Dataset):
                 rule_size = int(size*rule_distribution[idx])
             else:
                 rule_size = int(size/len(rules))
-            d.remake_indices(rule_size,rules=r)
+            d.remake_indices(rule_size,rules=[r])
     
     def __getitem__(self, index):
         return tuple(
