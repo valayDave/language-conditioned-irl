@@ -17,7 +17,7 @@ The dataset for mountain car is annotated with `category`. `create_contrastive_e
 
 Process has the following way of building: 
 1. Create the `Raw Data` [created via collect_data.py.](../../../collect_data.py)
-    - *TODO* : This also saves the video with the dataset. 
+    - *TODO* : Make this file save the video with the dataset. 
 2. From `Raw Data` create intermediate `h5py` dataset and `csv` metadata file about each episode in the dataset using the `HDF5VideoDatasetCreator`. The `use_channels` variable holds all the channels to filter from the raw data to create the `h5py` dataset. Below is a snippet showing how to create the dataset. 
 3. Once the intermediate `h5py` file and the associated metadata `csv` are created using the `HDF5VideoDatasetCreator`, the `HDF5ContrastiveSetCreator` helps create the train and test sets with contrastive indices. 
 ```python
@@ -76,8 +76,43 @@ contrasting_set_creator.make_dataset(
 
 
 ### Dataset Loading 
+1. Data loading requires the folder created by the `HDF5ContrastiveSetCreator` in the previous section on Data Creation. Below is snippet for Data loading. 
 
-#### TODO : Document actual Loading Classses here 
+```python
+from language_conditioned_rl.dataloaders.robotics.datamaker import \
+    SampleContrastingRule,\
+    PickingNoisyContrastRule,\
+    SameObjectPouringIntensityRule,\
+    PouringShapeSizeContrast,\
+    PickingObjectContrastingRule,\
+    ContrastingActionsRule,
 
-- `DemonstrationsDataset` is the PyTorch `Dataset` to help load the `h5py` demonstrations. 
-- Instantiate the DataLoader with `DataLoader(collate_fn=ContrastiveCollateFn,**whatever_your_kwargs)`
+from language_conditioned_rl.dataloaders.robotics.contrastive_dataset import \
+    SentenceContrastiveDataset,\
+    TaskBasedSentenceContrastiveDataset,\
+    JointsChannelsConcatDataset
+
+RULES = [PickingNoisyContrastRule(),PickingObjectContrastingRule()]
+PATH_TO_DATASET_FOLDER = '<PATH_TO_DATASET_FOLDER>'
+NUM_SAMPLES = 30000 # Controls how many indicies will be made. 
+RULE_DISTRIBUTION = [80,20] # Controls distribution of data among rules. If empty then even distribution is assumed. 
+BATCH_SIZE= 40
+dataset = JointsChannelsConcatDataset(
+    PATH_TO_DATASET_FOLDER,\
+    normalize_images=True,\
+    use_channels=USE_CHANNELS,
+)
+# Basically recreates the contrastive indices based on the `NUM_SAMPLES` and `RULES` and `RULE_DISTRIBUTION`
+dataset.remake_indices(NUM_SAMPLES,\
+    rules=RULES,\
+    rule_distribution=RULE_DISTRIBUTION,\
+)
+roboloader = DataLoader(dataset,\
+                        batch_size=BATCH_SIZE,\
+                        collate_fn=dataset.collate_fn(),\
+                        num_workers=0,\
+                        shuffle=True,\
+                        drop_last=True)
+```
+
+- *TODO* : Add information about `TaskBasedSentenceContrastiveDataset`
