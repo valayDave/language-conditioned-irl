@@ -1,9 +1,16 @@
-# Dataloaders
+# Dataset Loading For Training Reward Model  
 
-# Dataloader for Mountain Car. 
+## Core Ideas
+The data loading takes place from the raw source of data which holds episodic trajectories and sentence based description for those episodic trajectories. For either the usecase of mountaincar or robot experiments the high level process stays the same. `Raw Data` --> `Contrasting Indices Dataset`. The conversion to `Contrasting Indices Dataset` is done based on some rule to create the contrasting indices. 
+
+## Mountain Car. 
+
+
 [This file](../language_conditioned_rl/dataloaders/mountaincar/dataset.py) consists of the entire data loading process for the mountain car experiments. 
 
-# Dataloader For Robotics Experiments
+The dataset for mountain car is annotated with `category`. `create_contrastive_examples` is a function which will create the `ContrastiveTrainingDataset` from 
+
+## Robotics Experiments
 ![images/DataLoadingRobo-213.jpg](images/DataLoadingRobo-213.jpg)
 
 There are three main datasets. :
