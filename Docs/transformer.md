@@ -186,3 +186,12 @@ class ChannelMaker(metaclass=abc.ABCMeta):
     def from_json(self,json_dict)->ChannelConfiguration:
         raise NotImplementedError
 ```
+
+## Some Observations From Training 
+
+1. Bigger Models are finding better decision boundaries with smaller Batchsizes
+2. Smaller Models are also doing good with bigger batch sizes
+3. Sentence Grounding examples based data-augmentation is extreamely benificial in boosting training results. 
+    1. Sentence grounding means that we creating training tuples we create 
+4. Size of transfomer's embeddings were tuned down to as small as 16 but it still finds pretty distinct boundaries. 
+
