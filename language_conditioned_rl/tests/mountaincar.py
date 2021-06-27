@@ -1,9 +1,14 @@
+import abc
+from typing import List, Tuple
 import torch
 from torch.utils.data.dataloader import DataLoader
+from torch.utils.data.dataset import Dataset
+from torch.utils.data.dataset import TensorDataset
 import pandas
+import json
 import matplotlib.pyplot as plt
 import numpy
-from ..dataloaders.mountaincar.dataset import BertEmbedContrastiveTokenizedDatasetWithSentences, contloader_collate_fn_with_mask_and_cats,CATEGORY_AUGMENT_SENTENCE_MAP
+from ..dataloaders.mountaincar.dataset import BertEmbedContrastiveTokenizedDatasetWithSentences, contloader_collate_fn_with_mask_and_cats,CATEGORY_AUGMENT_SENTENCE_MAP,MAX_TEXT_LENGTH
 
 
 TEST_EPISODE_SAMPLES = 10
@@ -86,6 +91,387 @@ def create_grouped_text_category_reward_hist(traj_grp_df, axis, traj_grp):
     axis.legend(legends)
     return axis
 
+
+class IndividualObjTestcase(metaclass=abc.ABCMeta):
+    """IndividualObjTestcase : ONLY FOR MOUNTAIN CAR!
+    - For each test case define a `configuration` and a `_make_data`. Do what ever you want in that. 
+    - Use the configuration during the `_make_data` step
+        - This should return tuple (`T`) of a `TensorDataset` and a `pandas.DataFrame` representing metadata of the `TensorDataset`. 
+    
+    - `run_test` will run the test case. Add what ever sugar needed for return data type. 
+        - Invoke `_run_test` with the data to get the metadata df according to rewards. 
+    """
+    def __init__(self,tokenizer=None,batch_size=10,sample_size=2,max_traj_length = 200,action_space=3) -> None:
+        assert tokenizer is not None
+        self.tokenizer = tokenizer
+        self.configuration = None
+        self.batch_size=batch_size
+        self.max_traj_length = max_traj_length
+        self.action_space = action_space
+        self.sample_size=sample_size
+
+    def to_json(self):
+        return dict(
+            configuration = self.configuration,
+            sample_size=self.sample_size
+        )
+    
+    @property
+    def name(self):
+        return self.__class__.__name__
+    
+    def make_data(self,data_df):
+        assert 'category' in data_df.columns and 'trajectory_stats' in data_df.columns and 'sentences' in data_df.columns
+        return self._make_data(data_df)
+
+    def _make_data(self,dataframe:pandas.DataFrame) -> Tuple[TensorDataset,pandas.DataFrame]:
+        raise NotImplementedError()
+
+    def _run_test(self,rw_model,test_df:pandas.DataFrame):
+        tensor_dataset, metadata_df = self.make_data(test_df)
+        loader = DataLoader(tensor_dataset,batch_size=self.batch_size,shuffle=False)
+        rewards = []
+        with torch.no_grad():
+            for datatup in loader:
+                sent, sentence_mask,st,st_mask,at,at_mask  = datatup
+                reward_vals = rw_model.reward_fn(
+                    st, at, sent, text_mask=sentence_mask, act_mask=at_mask, st_mask=st_mask)
+                rewards.append(reward_vals)
+            stacked_rewards = torch.cat(rewards,dim=0).squeeze(1).cpu().numpy()
+        metadata_df['rewards'] = stacked_rewards
+        return metadata_df
+    
+    def run_test(self,rw_model,test_df:pandas.DataFrame):
+        raise NotImplementedError()
+
+    
+    @staticmethod
+    def make_mask_from_len(len_tensor, max_size):
+        '''
+        len_tensor: 
+        '''
+        return (torch.arange(max_size)[None, :] < len_tensor[:, None]).float()
+
+    def encode_sentence(self, sentence):
+        data_dict = self.tokenizer.batch_encode_plus(
+            [sentence],                      # Sentence to encode.
+            add_special_tokens=True,  # Add '[CLS]' and '[SEP]'
+            # Pad & truncate all sentences.
+            max_length=MAX_TEXT_LENGTH,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            return_tensors='pt',     # Return pytorch tensors.
+        )
+        return (data_dict['input_ids'].squeeze(0), data_dict['attention_mask'].squeeze(0))
+
+    def extract_trajectory(self, traj_obj):
+        act_list = list(
+            map(lambda x: x['action'], traj_obj))
+        state_list = list(
+            map(lambda x: x['observation'], traj_obj))
+
+        act_list_len = len(act_list)
+        state_list_len = len(state_list)
+
+        if self.max_traj_length > act_list_len:
+            # Adding A NULL Action token which is a part of the transformer to ensure null action
+            act_list.extend([self.action_space for _ in range(
+                self.max_traj_length-len(act_list))])
+
+        if self.max_traj_length > state_list_len:
+            # Repeat last state in the state list
+            state_list.extend([state_list[-1]
+                               for _ in range(self.max_traj_length-len(state_list))])
+        action_tensor = torch.Tensor(act_list).type(torch.LongTensor)
+        state_tensor = torch.Tensor(state_list)
+        return (state_tensor,\
+                self.make_mask_from_len(torch.Tensor(\
+                    [state_list_len]), self.max_traj_length).squeeze(0),\
+                action_tensor,\
+                self.make_mask_from_len(torch.tensor(\
+                    [act_list_len]), self.max_traj_length).squeeze(0)\
+                )
+    
+    def _create_tensor_dataset(self,data_dict:List[dict]):
+        return_data_dict = {
+            "sent" : [],
+            "sent_mask" : [],
+            "st" : [],
+            "st_mask" : [],
+            "at" : [],
+            "at_mask" : [],
+        }
+        for data in data_dict:
+            assert 'sentence' in data
+            sent,sent_mask = self.encode_sentence(data['sentence'])
+            trajectory =data['trajectory_stats'] #json.loads()
+            st,st_mask,at,at_mask = self.extract_trajectory(trajectory)
+            return_data_dict["sent"].append(sent)
+            return_data_dict["sent_mask"].append(sent_mask)
+            return_data_dict["st"].append(st)
+            return_data_dict["st_mask"].append(st_mask)
+            return_data_dict["at"].append(at)
+            return_data_dict["at_mask"].append(at_mask)
+        
+        return TensorDataset(
+            torch.stack(return_data_dict["sent"]),
+            torch.stack(return_data_dict["sent_mask"]),
+            torch.stack(return_data_dict["st"]),
+            torch.stack(return_data_dict["st_mask"]),
+            torch.stack(return_data_dict["at"]),
+            torch.stack(return_data_dict["at_mask"]),
+        )
+
+
+class TrajectoryFixedDifferentSentenceTestCase(IndividualObjTestcase):
+    """TrajectoryFixedSentenceTestCase [summary]
+    Test case 1 : Rewards after fixing single one sample per traj type and varying sentences.
+    """
+    def __init__(self,**kwags) -> None:
+        super().__init__(**kwags) # Sentence variations
+        self.configuration = [
+            [
+                "the trolley keeps moving around at the foot of the mountain and is unsuccessful in reaching the top of the mountain",
+                "the truck is successful in staying at the foot of the mountain because it keeps moving around in the valley",
+                "the car is unsuccessful in reaching the top of the mountain because it keeps oscillating in the valley",
+                "the car moves around at the bottom of the mountain",
+            ],
+            
+            [
+                "the car swings beyond the valley upto the middle of the mountain and is unsuccessful in reaching the top of the mountain",
+                "the trolley climbs up and down the hill",
+                "car swings beyond the valley upto the middle of the hill",
+                "truck is unsuccessful in reaching the top of the hill because it climbs up and down the hill",
+            ],
+            [
+                "trolley successfully reaches the top of the hill",
+                "the truck swings really fast in the valley and reaches the top of the mountain",
+                "car swings really fast in the valley and reaches the top of the hill",
+                "car successfully reaches the top of the hill,",
+            ],
+        ]
+        
+    def _make_data(self, dataframe:pandas.DataFrame):
+        # Rewards after fixing single one sample per traj type
+        collected_trajectories = []
+        for cat,cat_grp in dataframe.groupby('category'):
+            dx = cat_grp.sample(self.sample_size)
+            traj_objs = dx.to_dict(orient='records')
+            collected_trajectories.append(traj_objs)
+
+        meta_data_objects = []
+        for idx,category_traj_list in enumerate(collected_trajectories):
+            traj_cat = idx+1
+            for sidx,cat_sentences in enumerate(self.configuration):
+                sent_cat = sidx+1
+                for cat_traj_obj in category_traj_list:
+                    for sent in cat_sentences:
+                        meta_data_objects.append(
+                            dict(
+                                trajectory_category = traj_cat,
+                                text_category = sent_cat, 
+                                episode_id = cat_traj_obj['episode_id'],
+                                sentence = sent,
+                                test_case_name = self.__class__.__name__,
+                                trajectory_stats =  cat_traj_obj['trajectory_stats'],
+                            )
+                        )
+        metadata_df = pandas.DataFrame(meta_data_objects)
+        tensor_dataset = self._create_tensor_dataset(meta_data_objects)
+        return tensor_dataset,metadata_df
+
+    def run_test(self, rw_model, test_df: pandas.DataFrame):
+        reward_dataframe = self._run_test(rw_model, test_df)
+        return reward_dataframe
+        
+class TrajectoryFixedSynonymsTestCase(IndividualObjTestcase):
+    """TrajectoryFixedSentenceTestCase [summary]
+    Test case 1.1: Rewards of fixing single one sample per traj type with synonym replacement.
+    - For each sentence block explicity only use same category trajectory
+    """
+    def __init__(self,**kwags) -> None:
+        super().__init__(**kwags) # Sentence variations
+        self.configuration = [
+            [
+                "the trolley keeps moving around at the foot of the mountain and is unsuccessful in reaching the top of the mountain",
+                "the truck keeps moving around at the foot of the hill and is unsuccessful in reaching the top of the hill",
+                "the trolley moves around at the bottom of the mountain",
+                "the car moves around at the bottom of the mountain"
+            ],
+            
+            [
+                "the car swings beyond the valley upto the middle of the mountain and is unsuccessful in reaching the top of the mountain",
+                "the truck swings beyond the valley upto the middle of the hill and is unsuccessful in reaching the top of the hill",
+            ],
+            [
+                "the trolley reaches the top of the hill",
+                "the truck reaches the top of the hill",
+                "the car reaches the top of the hill",
+            ],
+        ]
+        
+    def _make_data(self, dataframe:pandas.DataFrame):
+        # Rewards after fixing single one sample per traj type
+        collected_trajectories = []
+        for cat,cat_grp in dataframe.groupby('category'):
+            dx = cat_grp.sample(self.sample_size)
+            traj_objs = dx.to_dict(orient='records')
+            collected_trajectories.append(traj_objs)
+
+        meta_data_objects = []
+        # Rewards of fixing single one sample per traj type with synonym replacements in sentences.
+        for cat_idx,data_tup in enumerate(zip(collected_trajectories,self.configuration)):
+            # For each sentence block explicity only use same category trajectory
+            category_traj_list, cat_sentences = data_tup
+            for cat_traj_obj in category_traj_list:
+                for sent in cat_sentences:
+                    meta_data_objects.append(
+                        dict(
+                            trajectory_category = cat_idx+1,
+                            text_category = cat_idx+1, 
+                            episode_id = cat_traj_obj['episode_id'],
+                            sentence = sent,
+                            test_case_name = self.__class__.__name__,
+                            trajectory_stats =  cat_traj_obj['trajectory_stats'],
+                        )
+                    )
+        metadata_df = pandas.DataFrame(meta_data_objects)
+        tensor_dataset = self._create_tensor_dataset(meta_data_objects)
+        return tensor_dataset,metadata_df
+
+    def run_test(self, rw_model, test_df: pandas.DataFrame):
+        reward_dataframe = self._run_test(rw_model, test_df)
+        return reward_dataframe
+
+
+
+class TrajectoryFixedSemanticSimilarTestCase(IndividualObjTestcase):
+    """TrajectoryFixedSemanticSimilarTestCase [summary]
+    Test case 1.2: Single trajectory and multiple sentences that are semantically the same,
+        - For each sentence block explicity only use same category trajectory
+    """
+    def __init__(self,**kwags) -> None:
+        super().__init__(**kwags) # Sentence variations
+        self.configuration = [
+            [
+                "the truck keeps moving around at the foot of the hill and is unsuccessful in reaching the top of the hill",
+                "the trolley moves around at the bottom of the mountain",
+                
+            ],
+            [
+                "car swings beyond the valley upto the middle of the hill",
+                "the truck swings beyond the valley upto the middle of the hill and is unsuccessful in reaching the top of the hill",
+            ],
+            [
+                "the car reaches the top of the hill",
+                "the truck swings really fast in the valley and reaches the top of the mountain",
+            ],
+        ]
+        
+    def _make_data(self, dataframe:pandas.DataFrame):
+        # Rewards after fixing single one sample per traj type
+        collected_trajectories = []
+        for cat,cat_grp in dataframe.groupby('category'):
+            dx = cat_grp.sample(self.sample_size)
+            traj_objs = dx.to_dict(orient='records')
+            collected_trajectories.append(traj_objs)
+
+        meta_data_objects = []
+        # Rewards of fixing single one sample per traj type with synonym replacements in sentences.
+        for cat_idx,data_tup in enumerate(zip(collected_trajectories,self.configuration)):
+            # For each sentence block explicity only use same category trajectory
+            category_traj_list, cat_sentences = data_tup
+            for cat_traj_obj in category_traj_list:
+                for sent in cat_sentences:
+                    meta_data_objects.append(
+                        dict(
+                            trajectory_category = cat_idx+1,
+                            text_category = cat_idx+1, 
+                            episode_id = cat_traj_obj['episode_id'],
+                            sentence = sent,
+                            test_case_name = self.__class__.__name__,
+                            trajectory_stats =  cat_traj_obj['trajectory_stats'],
+                        )
+                    )
+        metadata_df = pandas.DataFrame(meta_data_objects)
+        tensor_dataset = self._create_tensor_dataset(meta_data_objects)
+        return tensor_dataset,metadata_df
+
+    def run_test(self, rw_model, test_df: pandas.DataFrame):
+        reward_dataframe = self._run_test(rw_model, test_df)
+        return reward_dataframe
+
+class TextRewardTestCase(IndividualObjTestcase):
+    """TextRewardTestCase 
+    Test case 2 : Rewards of fixing single one sample sentence but try multiple trajectory of each type.
+    """
+    def __init__(self,**kwags) -> None:
+        super().__init__(**kwags) # Sentence variations
+        self.configuration = [
+            [
+                "the trolley moves around at the bottom of the mountain",
+            ],
+            [
+                "the truck swings beyond the valley upto the middle of the hill",
+            ],
+            [
+                "the car reaches the top of the hill",
+            ],
+        ]
+        
+    def _make_data(self, dataframe:pandas.DataFrame):
+        # Rewards after fixing single one sample per traj type
+        collected_trajectories = []
+        for cat,cat_grp in dataframe.groupby('category'):
+            dx = cat_grp.sample(self.sample_size)
+            traj_objs = dx.to_dict(orient='records')
+            collected_trajectories.append(traj_objs)
+
+        meta_data_objects = []
+        for idx,category_traj_list in enumerate(collected_trajectories):
+            traj_cat = idx+1
+            for sidx,cat_sentences in enumerate(self.configuration):
+                sent_cat = sidx+1
+                for cat_traj_obj in category_traj_list:
+                    for sent in cat_sentences:
+                        meta_data_objects.append(
+                            dict(
+                                trajectory_category = traj_cat,
+                                text_category = sent_cat, 
+                                episode_id = cat_traj_obj['episode_id'],
+                                sentence = sent,
+                                test_case_name = self.__class__.__name__,
+                                trajectory_stats =  cat_traj_obj['trajectory_stats'],
+                            )
+                        )
+        metadata_df = pandas.DataFrame(meta_data_objects)
+        tensor_dataset = self._create_tensor_dataset(meta_data_objects)
+        return tensor_dataset,metadata_df
+
+    def run_test(self, rw_model, test_df: pandas.DataFrame):
+        reward_dataframe = self._run_test(rw_model, test_df)
+        return reward_dataframe
+
+
+def single_object_reference_results(rw_model,test_data_frame,tokenizer=None):
+    test_objects = [
+        TrajectoryFixedDifferentSentenceTestCase(sample_size=28,tokenizer=tokenizer),\
+        TrajectoryFixedSynonymsTestCase(sample_size=1,tokenizer=tokenizer),\
+        TrajectoryFixedSemanticSimilarTestCase(sample_size=1,tokenizer=tokenizer),\
+        TextRewardTestCase(sample_size=28,tokenizer=tokenizer),\
+    ]
+    return_data = []
+    for proc_obj in test_objects:
+        result_df = proc_obj.run_test(rw_model,test_data_frame)
+        result_object = dict(
+            test_case_name = proc_obj.name,
+            meta_data = proc_obj.to_json(),
+            results = result_df.to_dict(orient='records')
+        )
+        return_data.append(result_object)
+    return return_data
+        
 
 def mountain_car_based_test_results(rw_model, test_data_frame, tokenizer=None, only_core_samples=True):
     cont_loader = DataLoader(BertEmbedContrastiveTokenizedDatasetWithSentences(test_data_frame,

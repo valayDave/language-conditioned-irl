@@ -1,6 +1,11 @@
 transformers
-pytorch-lightning
+pytorch-lightning==1.2.5
 einops
 neptune-client 
 neptune-contrib
 moviepy
+h5py
+gym
+opencv-python
+sklearn
+click

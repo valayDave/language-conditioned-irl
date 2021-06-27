@@ -1016,6 +1016,22 @@ class LGROmniChannelInferenceMixinMountainCar(object):
         '''
         return (torch.arange(max_size)[None, :] < len_tensor[:, None]).float()
 
+    def get_rewards(self, state, action, text: str):
+        '''
+        gives scalar reward given 1 trajectory and 1 text
+        state: []
+        action : []
+        text: str : "the car moved up the hill"
+        '''
+        state, state_mask, action, action_mask = self.encode_trajectory(
+            action, state)
+        text_tensor, text_mask = self.encode_sent([text])
+        reward_op = self.reward_fn(
+            state, action, text_tensor, text_mask=text_mask, act_mask=action_mask, st_mask=state_mask
+        )
+        # print(reward_op)
+        return reward_op[0].item()
+
     @classmethod
     def from_neptune(cls,
                      project_name,
@@ -1055,7 +1071,10 @@ class LGROmniChannelInferenceMixinMountainCar(object):
             if c['name'] not in MOUNTAIN_CAR_CHANNELS:
                 raise Exception(
                     f"Unknown Channel : {c['name']} Choose From : {','.join(list(MOUNTAIN_CAR_CHANNELS.keys()))}")
-            channel_maker = MOUNTAIN_CAR_CHANNELS[c['name']](**c)  # instantiate channel maker 
+            if 'restricted_channels' in c and len(c['restricted_channels']) > 0:
+                channel_maker = MOUNTAIN_CAR_CHANNELS_WITH_RESTRICTION[c['name']](**c)  # instantiate channel maker 
+            else:
+                channel_maker = MOUNTAIN_CAR_CHANNELS[c['name']](**c)  # instantiate channel maker 
             config_channnels.append(channel_maker.make_channel())
 
         if 'transformer_params' in config:  # The was after Bringing new ddataset to log everything properly
