@@ -404,7 +404,7 @@ def saveTaskToFile(path, task):
             task[k] = v.tolist()
         elif type(v) == np.int64:
             task[k] = int(v)
-        elif type(v) in [str, list, int]:
+        elif type(v) in [str, list, int,bool]:
             pass
         else:
             print("Serializing unhandled type", k, type(v))
