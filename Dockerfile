@@ -37,11 +37,11 @@ RUN cd /opt/home && git clone https://github.com/orocos/orocos_kinematics_dynami
     cd /opt/home/orocos_kinematics_dynamics/python_orocos_kdl && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DPYTHON_VERSION=3 .. && make -j4 && cp PyKDL.so /usr/local/lib/python3.6/dist-packages
 
 ADD ./language_conditioned_rl /opt/home/language_conditioned_irl/language_conditioned_rl
-ADD ./GDrive /opt/home/language_conditioned_irl/GDrive
 ADD setup.py /opt/home/language_conditioned_irl/setup.py
 ADD requirements.txt /opt/home/language_conditioned_irl/requirements.txt
 ADD Readme.md /opt/home/language_conditioned_irl/Readme.md
 RUN cd /opt/home/language_conditioned_irl && pip install -r requirements.txt && python setup.py install
 RUN pip install git+https://github.com/CMA-ES/pycma.git@master
 ADD ./ros1compat /opt/home/language_conditioned_irl/ros1compat
-ADD collect_data.py /opt/home/language_conditioned_irl/collect_data.py
+ENV PYTHONPATH "${PYTHONPATH}:/opt/home/language_conditioned_irl/ros1compat"
+CMD ["python3"]

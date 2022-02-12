@@ -32,15 +32,16 @@ VREP_HEADLESS       = True
 # Default position of the UR5 robot. You do not need to change this
 DEFAULT_UR5_JOINTS  = [105.0, -30.0, 120.0, 90.0, 60.0, 90.0]
 # Path to the UR5 URDF file
-ROBOT_URDF          = "./GDrive/ur5_robot.urdf"
 # General speed of the robot. Lower values will increase the robot's movement speed
 TGEN_SPEED_FACTOR   = 150
 # Height at which to grasp the cups. You do not need to change this.
 GRASP_HEIGHT        = 0.115
 # Output directory of the collected data
+ROBOT_URDF          = "./GDrive/ur5_robot.urdf"
 DATA_PATH           = "./freshly_collected_data/dataset/"
 # Where to find the VRep scene file. This has to be an absolute path. 
 VREP_SCENE          = "./GDrive/NeurIPS2020.ttt"
+VIDEO_DIR           = './freshly_collected_data/videos/'
 VREP_SCENE          = os.path.join(os.getcwd() , VREP_SCENE)
 
 class SimulatorState(object):
@@ -68,8 +69,8 @@ class SimulatorState(object):
         return self.array
 
 class Robot(object):
-    def __init__(self):
-        kdl_tree           = kdl_parser_py.treeFromFile(ROBOT_URDF)[1]
+    def __init__(self,urdf_path =ROBOT_URDF):
+        kdl_tree           = kdl_parser_py.treeFromFile(urdf_path)[1]
         self.offsets       = np.deg2rad([90.0, -90.0, 0.0, -90.0, 0.0, 0.0])
         self.base_joints   = np.deg2rad(DEFAULT_UR5_JOINTS)
         transform          = kdl_tree.getChain("world", "tcp")
@@ -421,67 +422,7 @@ def _generateVoice(voice, task,add_noise):
         print("-> " + sentence)
     return sentence
 
-def collectSingleSample(pyrep):
-    robot = Robot()
-    voice = Voice(load=False)
-    print("Pyrep About to Start")
-    rgb_camera = VisionSensor("kinect_rgb_full")
-    pyrep.start()
-    print("Pyrep About Started")
-
-    frame       = 0
-    done        = False
-    task        = None
-    environment = None
-    phase       = 0 
-    trj_step    = 0
-    hid         = hashids.Hashids()
-    task_name   = hid.encode(int(time.time() * 1000000))
-    video_frames = []
-
-    while not done:
-        print("Running Loop Bro!")
-        state     = _getSimulatorState(pyrep)
-        if frame == 0:
-            environment = createEnvironment(pyrep)
-        elif task is None:
-            task               = _setupTask(phase, environment, robot, state.data["joint_robot_position"])
-            task["name"]       = task_name
-            task["phase"]      = phase
-            task["image"]      = _getCameraImage(rgb_camera)
-            task["ints"]       = environment[0]
-            task["floats"]     = environment[1]
-            task["state/raw"]  = []
-            task["state/dict"] = []
-            task["voice"]      = _generateVoice(voice, task)
-        else:
-            video_frames.append(_getCameraImage(rgb_camera))
-            task["state/raw"].append(state.toArray())
-            task["state/dict"].append(state.data)
-            try:
-                angles    = task["trajectory"][trj_step,:]
-                trj_step += 1
-            except IndexError:
-                
-                angles   = task["trajectory"][-1,:]
-                phase   += 1
-                name     = task_name + "_" + str(phase) + ".json"
-                saveTaskToFile(DATA_PATH + name, task)
-                save_episode_video(random.randint(0,10000),video_frames)
-                video_frames = []
-                task     = None
-                trj_step = 0
-                if phase == 2:
-                    done = True
-            _setJointVelocityFromTarget(pyrep, angles)
-
-        pyrep.step()        
-        frame += 1
-
-    pyrep.stop()
-
-
-def save_episode_video(file_name,video_array:np.array,freq=3,video_dir='./freshly_collected_data/videos/'):
+def save_episode_video(file_name,video_array:np.array,freq=3,video_dir=VIDEO_DIR):
     import cv2
     width,height= video_array[0].shape[0], video_array[0].shape[1]
     path = os.path.join(video_dir,f'{file_name}.avi')
@@ -575,8 +516,8 @@ def _setup_picking_task(phase, env, robot, current,add_noise=True,noise_dampning
 
     return task
 
-def create_picking_episodes(pyrep,add_noise=False):
-    robot = Robot()
+def create_picking_episodes(pyrep,add_noise=False,robot_urdf=ROBOT_URDF,data_path=DATA_PATH,video_dir=VIDEO_DIR):
+    robot = Robot(urdf_path=robot_urdf)
     voice = Voice(load=False)
     rgb_camera = VisionSensor("kinect_rgb_full")
     pyrep.start()
@@ -615,8 +556,12 @@ def create_picking_episodes(pyrep,add_noise=False):
             angles   = task["trajectory"][-1,:]
             name     = task_name + "_" + str(phase) 
             js_name = f"{name}.json"
-            save_episode_video(name,video_frames)
-            saveTaskToFile(os.path.join(DATA_PATH,js_name), task)
+            save_episode_video(
+                name,
+                video_frames,
+                video_dir=video_dir
+            )
+            saveTaskToFile(os.path.join(data_path,js_name), task)
             done = True
         _setJointVelocityFromTarget(pyrep, angles)
         pyrep.step()        
@@ -625,20 +570,20 @@ def create_picking_episodes(pyrep,add_noise=False):
 
 
 
-def run(per_process_demos,without_noise):
+def run(per_process_demos,without_noise,robot_urdf,data_path,video_dir,vrep_scene,headless):
     print("Starting BRO!")
     pyrep = None
     try:
         print("Collecting BRO!")
         pyrep = PyRep()
         print("Launched Pyrep!")
-        pyrep.launch(VREP_SCENE, headless=VREP_HEADLESS)
+        pyrep.launch(vrep_scene, headless=headless)
         for i in range(per_process_demos):
             noise_bool = False
             if not without_noise:
                 if i%2 != 0:
                     noise_bool = True
-            create_picking_episodes(pyrep,add_noise=noise_bool)
+            create_picking_episodes(pyrep,add_noise=noise_bool,robot_urdf=robot_urdf,data_path=data_path,video_dir=video_dir)
         if pyrep is not None:
             pyrep.shutdown()
     except KeyboardInterrupt as e:
@@ -647,16 +592,19 @@ def run(per_process_demos,without_noise):
         print("Shutdown Stuff!")
 
 
-
-
 @click.command(help='Collect Demostrations For the Picking Task')
+@click.option('--robot-urdf',default=ROBOT_URDF,help=f'Path to the UDF File : Defaults to {ROBOT_URDF}')
+@click.option('--data-path',default=DATA_PATH,help=f'Path to the save the data {DATA_PATH}')
+@click.option('--video-path',default=VIDEO_DIR,help=f'Path to the save the videos {VIDEO_DIR}')
+@click.option('--vrep-scene',default=VREP_SCENE,help=f'Path to the Secne File : Defaults to {VREP_SCENE}')
 @click.option('--num-demos',default=10,help='Number of Demostrations to Create From Simulator')
 @click.option('--without-noise',is_flag=True,help='Creates demostrations without noise')
 @click.option('--num-procs',default=2,help='Number of Processes to create For Making Demostrations')
-def make_picking_task(num_demos,without_noise,num_procs):
+@click.option('--headless',is_flag=True,help='Runs the simlation in a headless way')
+def make_picking_task(robot_urdf,data_path,vrep_scene,num_demos,without_noise,num_procs,headless):
     per_process_demos = int(num_demos/num_procs)
     assert per_process_demos > 0
-    Parallel(n_jobs=num_procs)(delayed(run)(per_process_demos,without_noise) for i in range(num_procs))
+    Parallel(n_jobs=num_procs)(delayed(run)(per_process_demos,without_noise,robot_urdf,data_path,vrep_scene,headless) for i in range(num_procs))
     
 
 
